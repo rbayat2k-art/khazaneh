@@ -1,0 +1,401 @@
+{
+  "createdAt": "2026-10-22T13:03:35.965Z",
+  "nodeTarget": 22,
+  "source": "C:/Users/reza/Desktop/khazaneh",
+  "builder": "installed rolldown",
+  "storage": "explicit JSON or SQLite; exclusive single writer; no automatic migration",
+  "sourceFiles": [
+    {
+      "path": "index.html",
+      "sha256": "4342855ba74265a107d7427aecaeaf1e34c6dd9ed98d06a89c71268918581f26"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "836346c6b8a1c848e6400da72e631e90f1ba6b136b87b1b33ab9ea0862bca9cb"
+    },
+    {
+      "path": "package.json",
+      "sha256": "01d8341d66c468143b38aa291f36f2ea97fec065b2f4e7676e254afd69fac838"
+    },
+    {
+      "path": "server.ts",
+      "sha256": "0d992e1ddf81690c0b5d512288e00692968760efda874247d580ca8fe79a240a"
+    },
+    {
+      "path": "src/App.tsx",
+      "sha256": "677dde86c244353f090d43b50e330eab87814f31f2c3b6c5a76adf6c095786dc"
+    },
+    {
+      "path": "src/components/AdminMasterDataAndSmsSection.tsx",
+      "sha256": "fc3b356561f655f3ab78b86eba639764b25c1a280d4029d9f3dc10ae5d4c3eb9"
+    },
+    {
+      "path": "src/components/AdminPortalView.tsx",
+      "sha256": "5ebe55cda3273e71458f5619d7d3e3c08da2fc2bf926b25839c6e45f59e4df85"
+    },
+    {
+      "path": "src/components/ApprovalsWorkspaceView.tsx",
+      "sha256": "a98eb81a74d2567956f3f5ad353e3ae096699c435b61d45cc1215d0f7359e884"
+    },
+    {
+      "path": "src/components/BankAccountImportDialog.tsx",
+      "sha256": "284fd21340729e14a5f2f9e41a8d5bcc40d63d3daaa76826473814ed4dbe0127"
+    },
+    {
+      "path": "src/components/CodeArchitectureView.tsx",
+      "sha256": "1262a7a3018c64520c3ce2c21f0d0ea96fd8d5779bca47c6a16babfaf846f833"
+    },
+    {
+      "path": "src/components/EmployeeRequestsView.tsx",
+      "sha256": "1c9cfd2bf36a5bc449b91d66e41896a81b280244b532f769a3782ff03c98fc84"
+    },
+    {
+      "path": "src/components/LoginPage.tsx",
+      "sha256": "e439398a5d5325141a5e9332180bdbd774b811ecdd2788ff4933b9e069c6a06e"
+    },
+    {
+      "path": "src/components/MasterDataBulkDialog.tsx",
+      "sha256": "f65a5fe3430e8ff6ea421f3244f8fae22d83fe7d40a441c05dcd237ef26154fd"
+    },
+    {
+      "path": "src/components/OfficialReviewNotes.tsx",
+      "sha256": "ca9a0c6bc7932adb562a3a7ecbdaead558d0a2b43c6abda2319c4d0ac844ffd6"
+    },
+    {
+      "path": "src/components/SettingsView.tsx",
+      "sha256": "e0a2e575df53d42fedf53ee75a159272324e351929bc629cb21e2d44fe3f4000"
+    },
+    {
+      "path": "src/components/SidebarNavigation.tsx",
+      "sha256": "74f61c9788c3fb8592d697678a941098687db7fbdee15685dcdea3e7e6dffbef"
+    },
+    {
+      "path": "src/components/SortableHeader.tsx",
+      "sha256": "32087b22535ee9cf18eb537e4fe5b5a076f8df53eaa0f1bc9b4967d3a4ea3993"
+    },
+    {
+      "path": "src/components/SourceBankAccountSelector.tsx",
+      "sha256": "4931a95b83f96eceb64b457797b0e954b3f38a6b1c4b2b8abdc6d7fe45ebe2e8"
+    },
+    {
+      "path": "src/components/SubmittedRequestEditDialog.tsx",
+      "sha256": "a81d71d5bc264acd9c33709fd4cc09b6a0b98da7584e3be412b8f9ea536a90e0"
+    },
+    {
+      "path": "src/components/TreasuryWorkspaceView.tsx",
+      "sha256": "32e7847c1b987b368dc7944b3800fb7656d698c135432ef9cf8e6094486336ec"
+    },
+    {
+      "path": "src/components/bank-input.ts",
+      "sha256": "c6e3f3d27cb6136143cc2e6af8ee79bc65feef5006cebe74e9eb6d7428184fcc"
+    },
+    {
+      "path": "src/data/nextjsCodeTemplates.ts",
+      "sha256": "686c3e724653d9222aa24327bd1298c7e6fd555760f76fe57db2294283a9b005"
+    },
+    {
+      "path": "src/index.css",
+      "sha256": "6ba03bba5ebd1d3082db5a975ab5df61507030e6ad7fc7413b10647e3395fa7f"
+    },
+    {
+      "path": "src/main.tsx",
+      "sha256": "30d02ee59cb6576973dea4368093b2dcae692a40668f288fdbc66a114873fcd3"
+    },
+    {
+      "path": "src/server/access-control.ts",
+      "sha256": "aed1c11d0d474a26638f40e73ecd8054bd79624fafd7c511e90948f21cdc016f"
+    },
+    {
+      "path": "src/server/committed-json.ts",
+      "sha256": "4bc16fd7e0c131b60dcb72c31249b0c88368dd157aea33bc08786da6e250877b"
+    },
+    {
+      "path": "src/server/company-access.ts",
+      "sha256": "36f6b8b58382cc07214f9c7ce42a0ff092551b8c98b645fba822a4fac0a59784"
+    },
+    {
+      "path": "src/server/documents.ts",
+      "sha256": "06fcc848375fad586fb3c2f301148fac105fa5314164ea5c147e8b8f8cab02dd"
+    },
+    {
+      "path": "src/server/financial-selection.ts",
+      "sha256": "b97e0a04180286b41280406e5186ac7fae50d851fbc74694e774d56000ad426d"
+    },
+    {
+      "path": "src/server/master-data.ts",
+      "sha256": "4a78cf1951d31180834ebe43b0b7501f8bc6998598f6c07d3b1724ab0ea98fd7"
+    },
+    {
+      "path": "src/server/mutation-queue.ts",
+      "sha256": "adbe8c92f5308b12655636ec20cbc27ccb462257120949a4679858fdbce00647"
+    },
+    {
+      "path": "src/server/notification-access.ts",
+      "sha256": "cfae7bc44a74d680151df8ff42f51cf93f21ac05a16143c08bdfee855446c1c2"
+    },
+    {
+      "path": "src/server/owner-lock.ts",
+      "sha256": "abd1c483af7de14d7be2a2d3baa3b1a1fa6ca99a9927fb5cc734804e8898f8cf"
+    },
+    {
+      "path": "src/server/shutdown.ts",
+      "sha256": "a9d00e10d9c1319112c57c95d4061a57910582c3062d35ef2fe97b7f2cd4a19e"
+    },
+    {
+      "path": "src/server/sms-security.ts",
+      "sha256": "10de733c2504031715daf765f55422d5613c6e9881fa12f07818938af550e839"
+    },
+    {
+      "path": "src/server/sqlite-records.ts",
+      "sha256": "f971d8becd08ee85943a2b04f17a198528bb8ecf4f1c2e4f618fed63fd59240c"
+    },
+    {
+      "path": "src/server/state-sync.ts",
+      "sha256": "d700afc94ca763c5c2ad9e0bbd16a6e157838eb58aa4f41e71ee2807d8eb2f1b"
+    },
+    {
+      "path": "src/server/storage-cli.ts",
+      "sha256": "096ebd63f59586fee2fcb4d81b73297c472193b1edcaf74c21c1a9fefc222479"
+    },
+    {
+      "path": "src/server/storage-transfer.ts",
+      "sha256": "5a205e9ab5754c330f9e604da261f946395b7742059ab3a1f0b300213f98875b"
+    },
+    {
+      "path": "src/server/treasury-input.ts",
+      "sha256": "f22f2ca27b7c25cb013139f08ce4659c56c87026c1690a8cf01822b5cd080174"
+    },
+    {
+      "path": "src/services/browserNotificationService.ts",
+      "sha256": "856c319cccde918f1393feae8152136f24128d4b10f62818a75736c7d5bdf19b"
+    },
+    {
+      "path": "src/types/treasury.ts",
+      "sha256": "f0a0149d64964a5d42df26a54fdd5a03a03bf6497ca9080f9b4c3c62879612cc"
+    },
+    {
+      "path": "src/utils/bank-account-import.ts",
+      "sha256": "57cac398cc01107724b893c345c2d564651f991f5a8c70d840ccde245da9303f"
+    },
+    {
+      "path": "src/utils/bank-account-workbook.ts",
+      "sha256": "b2bfec56d56de34ee515bfc02ce93f1f16bc4a18b902bfa3bb5d095c628ba91b"
+    },
+    {
+      "path": "src/utils/bank-account-workbook.worker.ts",
+      "sha256": "f2fddefe2d4ee3b0f1fb7e05e049ddcc6f40a35ae8f5bec22b392df6001edde1"
+    },
+    {
+      "path": "src/utils/bank-identifiers.ts",
+      "sha256": "e2de371a8498fb39f3f754d4c63fd1b17ff58e7420a93aedad832dbb2fb513bd"
+    },
+    {
+      "path": "src/utils/bankCards.ts",
+      "sha256": "66c7017f0c95dea84313f150cb54642c5efa05ad4919e0a6a7fd405d619bf89f"
+    },
+    {
+      "path": "src/utils/current-date.ts",
+      "sha256": "4aec7c581795e7d83af63c29b95ad20f072ccf3b26bdb79093c38d8699bd81c2"
+    },
+    {
+      "path": "src/utils/excelExport.ts",
+      "sha256": "cdc57266852dff770dcf0dad4f54d70c2ab3ec704876c0b84da66a9a7c0ed6ce"
+    },
+    {
+      "path": "src/utils/master-data-codes.ts",
+      "sha256": "eba5f5fa07e359454de4b6eac79062a80bcbdffb3bdc578e4cf9247045c4a412"
+    },
+    {
+      "path": "src/utils/pending-payment.ts",
+      "sha256": "4d52059a93aa68ca0d01e0774cf3a65932c6f44d2966b1f35ad373e4c1a5ce6d"
+    },
+    {
+      "path": "src/utils/permissions.ts",
+      "sha256": "c1549be94113cad091cfbcf08b75a0be97bbbd19caed5e0c16ccf0981c0a7993"
+    },
+    {
+      "path": "src/utils/request-edit.ts",
+      "sha256": "e315b00b8caac4dc619cdc24b3c048fe6e314b7570966333684ceebea84cae74"
+    },
+    {
+      "path": "src/utils/review-edit.ts",
+      "sha256": "e476ddb312498f67c0f574e388c745aa17d7309fc8857bf57a422ad478c9a404"
+    },
+    {
+      "path": "src/utils/review-rejection.ts",
+      "sha256": "c06591726464dafc75210b791259c38fb3fabdb744e5134cba665c5b1b6cdb84"
+    },
+    {
+      "path": "src/utils/sorting.ts",
+      "sha256": "0775798a5c32d2327d093e6fb790dbfdeffe2757cfb11afaaa74e0cb9f2c245c"
+    },
+    {
+      "path": "src/utils/state-sync.ts",
+      "sha256": "1022be943627960213a6df75eb378c4245b8d5cf84da0efd6a53fa630267db50"
+    },
+    {
+      "path": "src/utils/user-roles.ts",
+      "sha256": "daa1e0d66ccbbe98f259ac6397cc07c66ab904a025e941e49dbd00ca09d0c62c"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "cbc914147cc208c35cb5f6d405f0f0bc3c1c76ae76bf45bbc4f588b924492d2a"
+    },
+    {
+      "path": "vite.config.ts",
+      "sha256": "a1ac1ca6115f364736a48d1ffa7501d05152dca2745e30ee91e7cdeda5bf41e8"
+    }
+  ],
+  "files": [
+    {
+      "path": "dist/assets/AdminPortalView-DsIU-0F-.js",
+      "bytes": 121897,
+      "sha256": "2758e6bc02835ede9cc24f85d5817b73df88805f7176e8e27bd9661f70034d71"
+    },
+    {
+      "path": "dist/assets/aistudio/image_13d95327.png",
+      "bytes": 42835,
+      "sha256": "13d9532735bf61d1f0f55fa114b4e8c67cf28600bb41c187727cf7df6a83d460"
+    },
+    {
+      "path": "dist/assets/aistudio/image_2f905a0e.png",
+      "bytes": 145852,
+      "sha256": "2f905a0ecd003773faa38f7d4b1e38b7b651a5680c16a6bb22f47f3dfd31ad84"
+    },
+    {
+      "path": "dist/assets/aistudio/image_4e7bf234.png",
+      "bytes": 13120,
+      "sha256": "4e7bf2345bd93c00a8b37756132f00f3a59f9de348a0206b87b9759fe3c185fe"
+    },
+    {
+      "path": "dist/assets/aistudio/image_634be1dc.png",
+      "bytes": 45067,
+      "sha256": "634be1dc2960b27c6cc20dd1e6f6ef8b0f1966f3b56877127db737bb333e2886"
+    },
+    {
+      "path": "dist/assets/aistudio/image_9cbdf1a4.png",
+      "bytes": 226198,
+      "sha256": "9cbdf1a489b2061f93f86bcf9fa64e28cc1ca98c1b00a4732395ce38e4358990"
+    },
+    {
+      "path": "dist/assets/aistudio/image_ccb68d7e.png",
+      "bytes": 55026,
+      "sha256": "ccb68d7eacfb350963f8cb89edac0125e05a29dbb7eee08eb6968bbe7aa98305"
+    },
+    {
+      "path": "dist/assets/aistudio/image_e0177558.png",
+      "bytes": 235406,
+      "sha256": "e0177558a9dc88003c72ada353f5588f74d3a773a280e0271fb19002a03897ea"
+    },
+    {
+      "path": "dist/assets/aistudio/image_e3d152f8.png",
+      "bytes": 54439,
+      "sha256": "e3d152f834d3c3b6a420f75373ff25aef90cc7672fdeaa252cd5598609ca6aad"
+    },
+    {
+      "path": "dist/assets/ApprovalsWorkspaceView-DJs8cAL7.js",
+      "bytes": 56413,
+      "sha256": "f9feb3ced840233f6786cf9d7f2a10abd5d28b779da56bc2a97edb4b823e996a"
+    },
+    {
+      "path": "dist/assets/arrow-left-right-DGRTqwON.js",
+      "bytes": 237,
+      "sha256": "70b326642f7231067f54cd450a8b3c1f2553ef62ca62bdc7ba3a0f79d43eff6f"
+    },
+    {
+      "path": "dist/assets/bank-account-workbook.worker-B32Aog0U.js",
+      "bytes": 367636,
+      "sha256": "0083be6d3a5fbe6a48cc6fb062bc3e800d6874d702e98b636afadb6256654c09"
+    },
+    {
+      "path": "dist/assets/EmployeeRequestsView-DMLBY7Go.js",
+      "bytes": 74642,
+      "sha256": "801bd5c3f3ad564fc2864dbabc249a571875abcc98b1c535bd1e76256aaec841"
+    },
+    {
+      "path": "dist/assets/index-CAQ9Z3cq.js",
+      "bytes": 391889,
+      "sha256": "47fdec9cf983ee908c5178d1b6e5ed0113e69e1d157461d8a750dd15bac47bf1"
+    },
+    {
+      "path": "dist/assets/index-DG2pklED.css",
+      "bytes": 59736,
+      "sha256": "5d7d3a57cc9e08c216aeea4848e080f98bda360dfe8774087992d0ce12b62b04"
+    },
+    {
+      "path": "dist/assets/OfficialReviewNotes-BH2alLbb.js",
+      "bytes": 2018,
+      "sha256": "34b96deb44c6128194c25866090617a38b51c670fa267b7e29101ba1aa251b35"
+    },
+    {
+      "path": "dist/assets/review-rejection-Dvi57je_.js",
+      "bytes": 941,
+      "sha256": "e686ead1204261ad76b902a8dd2adfd16825303e3d3887f3dc60fb556596146f"
+    },
+    {
+      "path": "dist/assets/save-BWnYaS4x.js",
+      "bytes": 316,
+      "sha256": "7941ee922b4e9d8aaf3733f5ecbb987adff44d3661ab170f64c57954cc70ba93"
+    },
+    {
+      "path": "dist/assets/SettingsView-9hDQix0S.js",
+      "bytes": 23100,
+      "sha256": "7b6ceef4190c2fe5266a571ee7718c1b4ca980937907d21562ed953d48f0d5f5"
+    },
+    {
+      "path": "dist/assets/SortableHeader-BFbebulr.js",
+      "bytes": 1831,
+      "sha256": "ccd40e1d41e1199d51f2f16dd9107cf786739b3c5270386c8aa4b0af6c5977fc"
+    },
+    {
+      "path": "dist/assets/square-pen-D772eV7X.js",
+      "bytes": 309,
+      "sha256": "30454d3a2e8ae3f72e6cae6d7ad0d2821b63d3cea8761ba5a07f9fa8d37eba5a"
+    },
+    {
+      "path": "dist/assets/trash-2-D0bOxa-5.js",
+      "bytes": 417,
+      "sha256": "3a7f2f6c083a9bc49e85c779b7e94f04f9f0b6b9795df54fe9b901bbcf0d7389"
+    },
+    {
+      "path": "dist/assets/treasury-portal-hero.svg",
+      "bytes": 14880,
+      "sha256": "2542dfd6de39f46d05bf3d3104ffe3d60bac75a05dbad97b1ccca7c0e753a36d"
+    },
+    {
+      "path": "dist/assets/TreasuryWorkspaceView-DM8EhXCQ.js",
+      "bytes": 465632,
+      "sha256": "f890b03cc903599f4b3b0b7ee270741daffc6a0f3d4d1383f69fdcdf706fcc88"
+    },
+    {
+      "path": "dist/assets/upload-CV7ekFHv.js",
+      "bytes": 219,
+      "sha256": "0d82595f16a5ce63a0d869418b483687a44ccea2289e8691c5b8be90f9116ec2"
+    },
+    {
+      "path": "dist/assets/workflow-showcase.svg",
+      "bytes": 5479,
+      "sha256": "e69336b66c6633edf8fe50428472ab0f7c6ae0312d469d404feab2d32fff8558"
+    },
+    {
+      "path": "dist/index.html",
+      "bytes": 1692,
+      "sha256": "a13d997b13341de2ca70a4d28433d7b9a240149ae7c00815948daa3d0918e934"
+    },
+    {
+      "path": "dist/templates/bank-accounts-template.xlsx",
+      "bytes": 11996,
+      "sha256": "707d2f3199c68e07bdad875dcf23221f781c894ad1288ea5db14142868ef7d67"
+    },
+    {
+      "path": "server.cjs",
+      "bytes": 1383618,
+      "sha256": "b56b409f8ca2ebc53aa0263bf60f021cd0ff6114c5cff373ca8304c139ef7209"
+    },
+    {
+      "path": "storage-cli.cjs",
+      "bytes": 16109,
+      "sha256": "16b535eefbdacf51379c3cda7b07a1bc362922414cff01f540febf670e82b211"
+    }
+  ]
+}

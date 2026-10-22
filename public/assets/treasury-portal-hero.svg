@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" fill="none">
+  <defs>
+    <linearGradient id="bgSky" x1="0" y1="0" x2="1200" y2="675" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#090D16" />
+      <stop offset="50%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#1E293B" />
+    </linearGradient>
+    <linearGradient id="goldGlow" x1="200" y1="50" x2="1000" y2="650" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.18" />
+      <stop offset="50%" stop-color="#F59E0B" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#10B981" stop-opacity="0.15" />
+    </linearGradient>
+    <linearGradient id="cardSurface" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1E293B" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0.98" />
+    </linearGradient>
+    <linearGradient id="glassTower" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#334155" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0.9" />
+    </linearGradient>
+    <linearGradient id="accentBlue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#0EA5E9" />
+    </linearGradient>
+    <linearGradient id="accentEmerald" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+    <linearGradient id="accentAmber" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D97706" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+    <pattern id="archGrid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#334155" stroke-width="0.6" stroke-opacity="0.35" />
+    </pattern>
+  </defs>
+
+  <!-- Base Architectural Canvas -->
+  <rect width="1200" height="675" fill="url(#bgSky)" />
+  <rect width="1200" height="675" fill="url(#goldGlow)" />
+  <rect width="1200" height="675" fill="url(#archGrid)" />
+
+  <!-- Subtle Financial District Skyline Silhouettes in Background -->
+  <g opacity="0.45">
+    <rect x="70" y="140" width="110" height="535" fill="url(#glassTower)" stroke="#475569" stroke-width="1" />
+    <line x1="95" y1="140" x2="95" y2="675" stroke="#334155" stroke-width="1" />
+    <line x1="125" y1="140" x2="125" y2="675" stroke="#334155" stroke-width="1" />
+    <line x1="155" y1="140" x2="155" y2="675" stroke="#334155" stroke-width="1" />
+
+    <polygon points="210,675 210,95 330,55 330,675" fill="url(#glassTower)" stroke="#475569" stroke-width="1" />
+    <line x1="240" y1="85" x2="240" y2="675" stroke="#334155" stroke-width="1" />
+    <line x1="270" y1="75" x2="270" y2="675" stroke="#334155" stroke-width="1" />
+    <line x1="300" y1="65" x2="300" y2="675" stroke="#334155" stroke-width="1" />
+
+    <rect x="860" y="110" width="140" height="565" fill="url(#glassTower)" stroke="#475569" stroke-width="1" />
+    <rect x="1025" y="170" width="105" height="505" fill="url(#glassTower)" stroke="#475569" stroke-width="1" />
+  </g>
+
+  <!-- Golden Hour Ambient Horizon Light -->
+  <ellipse cx="600" cy="340" rx="460" ry="210" fill="#0EA5E9" fill-opacity="0.08" />
+  <ellipse cx="820" cy="240" rx="280" ry="150" fill="#F59E0B" fill-opacity="0.09" />
+
+  <!-- Main Executive Treasury Command Board (Centerpiece) -->
+  <g transform="translate(85, 65)">
+    <!-- Outer Glass Frame -->
+    <rect x="0" y="0" width="1030" height="540" rx="20" fill="#0B1120" fill-opacity="0.88" stroke="#334155" stroke-width="1.5" />
+    <!-- Top Executive Header Bar -->
+    <rect x="0" y="0" width="1030" height="54" rx="20" fill="#1E293B" />
+    <rect x="0" y="34" width="1030" height="20" fill="#1E293B" />
+    <line x1="0" y1="54" x2="1030" y2="54" stroke="#334155" stroke-width="1" />
+
+    <!-- Window Controls & Portal Header Title -->
+    <circle cx="32" cy="27" r="6" fill="#475569" />
+    <circle cx="52" cy="27" r="6" fill="#475569" />
+    <circle cx="72" cy="27" r="6" fill="#38BDF8" />
+    <text x="995" y="33" fill="#F8FAFC" font-family="Tahoma, sans-serif" font-size="15" font-weight="bold" text-anchor="end">
+      پرتال جامع درخواست پرداخت، کنترل مالی و خزانه‌داری سازمانی
+    </text>
+    <text x="490" y="32" fill="#94A3B8" font-family="monospace" font-size="12" text-anchor="middle">
+      CORPORATE TREASURY &amp; WORKFLOW PORTAL
+    </text>
+
+    <!-- Top KPI Strip inside Command Center -->
+    <g transform="translate(28, 76)">
+      <!-- Card 1: Total Settled -->
+      <rect x="0" y="0" width="232" height="92" rx="12" fill="url(#cardSurface)" stroke="#334155" stroke-width="1" />
+      <rect x="16" y="16" width="6" height="60" rx="3" fill="url(#accentEmerald)" />
+      <text x="212" y="32" fill="#94A3B8" font-family="Tahoma, sans-serif" font-size="12" text-anchor="end">تسویه قطعی خزانه (پایا / ساتنا)</text>
+      <text x="212" y="60" fill="#F8FAFC" font-family="monospace" font-size="20" font-weight="bold" text-anchor="end">۱۸,۴۵۰,۰۰۰,۰۰۰</text>
+      <text x="212" y="79" fill="#34D399" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">ریال · ثبت با تصویر فیش و حساب مبدأ</text>
+
+      <!-- Card 2: In-Payment Pool -->
+      <rect x="248" y="0" width="232" height="92" rx="12" fill="url(#cardSurface)" stroke="#334155" stroke-width="1" />
+      <rect x="264" y="16" width="6" height="60" rx="3" fill="url(#accentBlue)" />
+      <text x="460" y="32" fill="#94A3B8" font-family="Tahoma, sans-serif" font-size="12" text-anchor="end">مخزن در حال پرداخت و صف بانک</text>
+      <text x="460" y="60" fill="#F8FAFC" font-family="monospace" font-size="20" font-weight="bold" text-anchor="end">۴,۱۲۰,۰۰۰,۰۰۰</text>
+      <text x="460" y="79" fill="#38BDF8" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">ریال · خروجی استاندارد بانکی XLSX</text>
+
+      <!-- Card 3: Accounting Control -->
+      <rect x="496" y="0" width="232" height="92" rx="12" fill="url(#cardSurface)" stroke="#334155" stroke-width="1" />
+      <rect x="512" y="16" width="6" height="60" rx="3" fill="url(#accentAmber)" />
+      <text x="708" y="32" fill="#94A3B8" font-family="Tahoma, sans-serif" font-size="12" text-anchor="end">ممیزی حسابداری و مراکز هزینه</text>
+      <text x="708" y="60" fill="#F8FAFC" font-family="monospace" font-size="20" font-weight="bold" text-anchor="end">۱۰۰٪ منطبق</text>
+      <text x="708" y="79" fill="#FBBF24" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">کنترل فاکتور، شبا و سقف بودجه واحدها</text>
+
+      <!-- Card 4: Active Companies & Banks -->
+      <rect x="744" y="0" width="230" height="92" rx="12" fill="url(#cardSurface)" stroke="#334155" stroke-width="1" />
+      <rect x="760" y="16" width="6" height="60" rx="3" fill="#818CF8" />
+      <text x="954" y="32" fill="#94A3B8" font-family="Tahoma, sans-serif" font-size="12" text-anchor="end">حساب‌های بانکی مبدأ و شرکت‌ها</text>
+      <text x="954" y="60" fill="#F8FAFC" font-family="monospace" font-size="20" font-weight="bold" text-anchor="end">۴ حساب مبدأ فعال</text>
+      <text x="954" y="79" fill="#A5B4FC" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">ملت · پاسارگاد · تجارت · سامان</text>
+    </g>
+
+    <!-- Middle Visual: 4-Stage Financial Approval Pipeline Diagram -->
+    <g transform="translate(28, 188)">
+      <rect x="0" y="0" width="974" height="142" rx="14" fill="#111827" stroke="#334155" stroke-width="1" />
+      <text x="950" y="28" fill="#E2E8F0" font-family="Tahoma, sans-serif" font-size="13" font-weight="bold" text-anchor="end">
+        چرخه هوشمند و چهارمرحله‌ای گردش اسناد مالی در پرتال سازمانی
+      </text>
+
+      <!-- Connecting Pipeline Line -->
+      <line x1="130" y1="84" x2="840" y2="84" stroke="#334155" stroke-width="3" stroke-dasharray="6 4" />
+
+      <!-- Stage 1 (Rightmost in RTL) -->
+      <g transform="translate(744, 46)">
+        <rect x="0" y="0" width="205" height="74" rx="10" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5" />
+        <text x="190" y="26" fill="#38BDF8" font-family="Tahoma, sans-serif" font-size="12" font-weight="bold" text-anchor="end">۱. ثبت درخواست متقاضی</text>
+        <text x="190" y="46" fill="#CBD5E1" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">دستور پرداخت و مساعده</text>
+        <text x="190" y="63" fill="#64748B" font-family="Tahoma, sans-serif" font-size="10" text-anchor="end">تکی و تجمیعی + پیوست فاکتور</text>
+      </g>
+
+      <!-- Stage 2 -->
+      <g transform="translate(504, 46)">
+        <rect x="0" y="0" width="205" height="74" rx="10" fill="#1E293B" stroke="#F59E0B" stroke-width="1.5" />
+        <text x="190" y="26" fill="#FBBF24" font-family="Tahoma, sans-serif" font-size="12" font-weight="bold" text-anchor="end">۲. تایید سرپرست واحد</text>
+        <text x="190" y="46" fill="#CBD5E1" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">بررسی ردیف‌به‌ردیف مستقل</text>
+        <text x="190" y="63" fill="#64748B" font-family="Tahoma, sans-serif" font-size="10" text-anchor="end">تعدیل مبلغ یا برگشت جهت اصلاح</text>
+      </g>
+
+      <!-- Stage 3 -->
+      <g transform="translate(264, 46)">
+        <rect x="0" y="0" width="205" height="74" rx="10" fill="#1E293B" stroke="#818CF8" stroke-width="1.5" />
+        <text x="190" y="26" fill="#A5B4FC" font-family="Tahoma, sans-serif" font-size="12" font-weight="bold" text-anchor="end">۳. کنترل مالی حسابداری</text>
+        <text x="190" y="46" fill="#CBD5E1" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">تطبیق مرکز هزینه و بودجه</text>
+        <text x="190" y="63" fill="#64748B" font-family="Tahoma, sans-serif" font-size="10" text-anchor="end">تایید نهایی اسناد مثبته مالی</text>
+      </g>
+
+      <!-- Stage 4 (Leftmost in RTL) -->
+      <g transform="translate(24, 46)">
+        <rect x="0" y="0" width="205" height="74" rx="10" fill="#064E3B" fill-opacity="0.55" stroke="#10B981" stroke-width="1.5" />
+        <text x="190" y="26" fill="#34D399" font-family="Tahoma, sans-serif" font-size="12" font-weight="bold" text-anchor="end">۴. خزانه‌داری و پرداخت</text>
+        <text x="190" y="46" fill="#E2E8F0" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">انتخاب حساب مبدأ و واریز</text>
+        <text x="190" y="63" fill="#6EE7B7" font-family="Tahoma, sans-serif" font-size="10" text-anchor="end">ثبت کد مرجع، فیش و روکش روزانه</text>
+      </g>
+    </g>
+
+    <!-- Bottom Ledger Preview & Analytics Chart -->
+    <g transform="translate(28, 348)">
+      <!-- Right Table Preview -->
+      <rect x="330" y="0" width="644" height="164" rx="14" fill="#111827" stroke="#334155" stroke-width="1" />
+      <text x="952" y="28" fill="#E2E8F0" font-family="Tahoma, sans-serif" font-size="12" font-weight="bold" text-anchor="end">
+        نمایش زنده صف تسویه خزانه و حساب‌های بانکی مبدأ
+      </text>
+      <line x1="346" y1="40" x2="958" y2="40" stroke="#1E293B" stroke-width="1" />
+
+      <!-- Row 1 -->
+      <rect x="348" y="50" width="608" height="30" rx="6" fill="#1E293B" fill-opacity="0.7" />
+      <text x="944" y="69" fill="#38BDF8" font-family="monospace" font-size="11" font-weight="bold" text-anchor="end">PAY-1403-201</text>
+      <text x="820" y="69" fill="#F8FAFC" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">شرکت انتقال داده‌های آسیاتک</text>
+      <text x="610" y="69" fill="#94A3B8" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">بانک ملت (حساب مبدأ ۰۱۰۹۴۸۲۷۱۱۰۰۴)</text>
+      <text x="415" y="69" fill="#34D399" font-family="monospace" font-size="11" font-weight="bold" text-anchor="end">۶۴۰,۰۰۰,۰۰۰ ریال</text>
+
+      <!-- Row 2 -->
+      <rect x="348" y="86" width="608" height="30" rx="6" fill="#1E293B" fill-opacity="0.4" />
+      <text x="944" y="105" fill="#FBBF24" font-family="monospace" font-size="11" font-weight="bold" text-anchor="end">BAT-1403-101</text>
+      <text x="820" y="105" fill="#F8FAFC" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">لیست تجمیعی ماموریت پرسنل فنی (۱۰ ردیف)</text>
+      <text x="610" y="105" fill="#94A3B8" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">بانک تجارت (تنخواه و پرسنلی)</text>
+      <text x="415" y="105" fill="#34D399" font-family="monospace" font-size="11" font-weight="bold" text-anchor="end">۴۲۵,۰۰۰,۰۰۰ ریال</text>
+
+      <!-- Row 3 -->
+      <rect x="348" y="122" width="608" height="30" rx="6" fill="#1E293B" fill-opacity="0.7" />
+      <text x="944" y="141" fill="#A5B4FC" font-family="monospace" font-size="11" font-weight="bold" text-anchor="end">PAY-1403-203</text>
+      <text x="820" y="141" fill="#F8FAFC" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">باربری سراسری ترابر جنوب</text>
+      <text x="610" y="141" fill="#94A3B8" font-family="Tahoma, sans-serif" font-size="11" text-anchor="end">بانک پاسارگاد (جاری تامین‌کنندگان)</text>
+      <text x="415" y="141" fill="#38BDF8" font-family="monospace" font-size="11" font-weight="bold" text-anchor="end">۴۲۰,۰۰۰,۰۰۰ ریال</text>
+
+      <!-- Left Cashflow Chart Widget -->
+      <rect x="0" y="0" width="312" height="164" rx="14" fill="#111827" stroke="#334155" stroke-width="1" />
+      <text x="292" y="28" fill="#E2E8F0" font-family="Tahoma, sans-serif" font-size="12" font-weight="bold" text-anchor="end">
+        تراز نقدینگی و روکش روزانه بانک‌ها
+      </text>
+      <!-- Bars -->
+      <rect x="36" y="92" width="28" height="52" rx="4" fill="#334155" />
+      <rect x="78" y="74" width="28" height="70" rx="4" fill="#0284C7" />
+      <rect x="120" y="58" width="28" height="86" rx="4" fill="#2563EB" />
+      <rect x="162" y="80" width="28" height="64" rx="4" fill="#0EA5E9" />
+      <rect x="204" y="48" width="28" height="96" rx="4" fill="#10B981" />
+      <rect x="246" y="62" width="28" height="82" rx="4" fill="#F59E0B" />
+      <path d="M 50 88 L 92 68 L 134 52 L 176 72 L 218 42 L 260 54" stroke="#38BDF8" stroke-width="2.5" fill="none" />
+    </g>
+  </g>
+</svg>

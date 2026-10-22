@@ -1,0 +1,6 @@
+{
+  "name": "پرتال جامع خزانه و درخواست‌های مالی",
+  "description": "سامانه یکپارچه مدیریت درخواست‌های مساعده، دستورات پرداخت، تاییدات سلسله‌مراتبی، میز کار خزانه‌داری، بایگانی فیش‌های بانکی و روکش روزانه",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

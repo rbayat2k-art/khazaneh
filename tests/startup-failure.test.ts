@@ -1,0 +1,14 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {spawn} from 'node:child_process';import {pathToFileURL} from 'node:url';import net from 'node:net';
+const root=process.env.TREASURY_TEST_DIR,server=process.env.TREASURY_TEST_SERVER,allowed='C:/Users/reza/Desktop/پروژه‌ها/انتشار موقت khazaneh/work/';
+if(!root||!server||!path.resolve(root).replaceAll('\\','/').startsWith(allowed)||!path.resolve(server).replaceAll('\\','/').startsWith(allowed+'domain-release-multi-role-'))throw Error('explicit isolated release and startup fixture required');
+for(const mode of ['sqlite','json'])test('failed '+mode+' initialization exits even with IPC keepalive and releases only its own lease',async()=>{
+ const dir=path.join(root,'startup-failure-'+mode);fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,'treasury-db.json');if(mode==='json')fs.writeFileSync(file,'TEST deliberately invalid JSON',{flag:'wx'});
+ const probe=net.createServer();await new Promise<void>((resolve,reject)=>{probe.once('error',reject);probe.listen(4331,'127.0.0.1',()=>probe.close(()=>resolve()));});
+ let observedError='';const child=spawn(process.execPath,['--import',pathToFileURL(path.resolve('tests/fail-commit.mjs')).href,server,'--host','127.0.0.1','--port','4331'],{cwd:path.dirname(server),windowsHide:true,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,NODE_ENV:'production',TREASURY_DATA_DIR:dir,TREASURY_TEST_DIR:dir,TREASURY_STORAGE_MODE:mode,DISABLE_EXTERNAL_INTEGRATIONS:'true',TREASURY_TEST_KEEP_INIT_ALIVE:'true'},stdio:['ignore','ignore','pipe','ipc']});
+ child.stderr!.on('data',b=>{observedError=(observedError+String(b)).slice(-2048);});
+ try{
+  const outcome=await new Promise<{code:number|null;signal:NodeJS.Signals|null}|null>((resolve,reject)=>{const timer=setTimeout(()=>resolve(null),5000);child.once('error',e=>{clearTimeout(timer);reject(e);});child.once('exit',(code,signal)=>{clearTimeout(timer);resolve({code,signal});});});
+  assert.ok(outcome,'failed initialization must terminate, not remain PM2-online with a referenced IPC channel');assert.equal(outcome.code,1);assert.equal(outcome.signal,null);assert.equal((mode==='sqlite'?/SQLite database missing/:/قابل خواندن نیست/).test(observedError),true,'expected initialization error must be observed without printing its body');assert.equal(fs.existsSync(path.join(dir,'.server-lock.json')),false,'owned startup lease must be released on failure');
+  if(mode==='json')assert.equal(fs.readFileSync(file,'utf8'),'TEST deliberately invalid JSON');else assert.equal(fs.existsSync(path.join(dir,'treasury.sqlite')),false,'startup cannot create a replacement store');
+ }finally{if(child.exitCode===null&&child.signalCode===null){child.kill('SIGTERM');await new Promise<void>(resolve=>child.once('exit',()=>resolve()));}}
+});

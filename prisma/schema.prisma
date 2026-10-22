@@ -1,0 +1,265 @@
+// ============================================================================
+// پرتال جامع خزانه و درخواست‌های مالی (Treasury & Financial Request Portal)
+// Prisma Schema - Compatible with SQLite (Dev) & PostgreSQL (Production)
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // در محیط عملیاتی قابل ارتقا به "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Enums (تعاریف وضعیت‌ها و نقش‌های سامانه)
+// ----------------------------------------------------------------------------
+
+enum Role {
+  ADMIN       // ادمین پرتال (مدیر کل و تعریف‌کننده دسترسی‌ها و سرپرستان)
+  REQUESTER   // درخواست‌دهنده (کارمند - فقط امکان ثبت درخواست دارد)
+  APPROVER    // تاییدکننده (سرپرست/مدیر واحد - امکان تایید پرسنل و ثبت درخواست)
+  ACCOUNTING  // حسابداری (بررسی مالی و بودجه و ارسال به صف خزانه)
+  TREASURY    // خزانه و پرداخت (اجرای پرداخت، فیش و روکش روزانه)
+}
+
+enum RequestStatus {
+  Pending_Approver   // در انتظار تایید سرپرست / تاییدکننده مستقیم
+  Pending_Accounting // در انتظار بررسی حسابداری
+  Pending_Treasury   // تایید نهایی - در صف پرداخت خزانه
+  Paid               // پرداخت شده
+  Rejected           // رد شده
+}
+
+enum Priority {
+  Normal // عادی
+  Urgent // فوری / اضطراری
+}
+
+enum CoverStatus {
+  Open   // باز
+  Closed // بسته شده (قفل روکش روزانه)
+}
+
+// ----------------------------------------------------------------------------
+// 1. User Model (کاربران، رمزهای عبور و انتساب سرپرست مستقیم)
+// ----------------------------------------------------------------------------
+model User {
+  id            String   @id @default(cuid())
+  name          String   // نام و نام خانوادگی
+  personnelCode String   @unique // کد پرسنلی (نام کاربری ورود)
+  department    String   // واحد سازمانی
+  role          Role     @default(REQUESTER)
+  password      String   // رمز عبور ورود به پرتال
+  phone         String?  // شماره تماس
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // سرپرست مستقیم مشخص‌شده توسط ادمین برای این کاربر
+  supervisorId  String?
+  supervisor    User?    @relation("SupervisorRequesters", fields: [supervisorId], references: [id])
+  subordinates  User[]   @relation("SupervisorRequesters")
+
+  // روابط با درخواست‌های مساعده
+  advanceRequestsSubmitted  AdvanceRequest[] @relation("AdvanceRequester")
+  advanceRequestsApproved   AdvanceRequest[] @relation("AdvanceApprover")
+  advanceRequestsAccounted  AdvanceRequest[] @relation("AdvanceAccounting")
+  advanceRequestsPaid       AdvanceRequest[] @relation("AdvanceTreasury")
+
+  // روابط با دستورات پرداخت
+  paymentRequestsSubmitted  PaymentRequest[] @relation("PaymentRequester")
+  paymentRequestsApproved   PaymentRequest[] @relation("PaymentApprover")
+  paymentRequestsAccounted  PaymentRequest[] @relation("PaymentAccounting")
+  paymentRequestsPaid       PaymentRequest[] @relation("PaymentTreasury")
+
+  // روابط با پرداخت‌های تلفنی و دستی
+  manualPaymentsCreated     ManualPayment[]  @relation("ManualPaymentCreator")
+
+  // درخواست‌های تجمیعی ثبت‌شده
+  batchPaymentsSubmitted    BatchPaymentRequest[] @relation("BatchRequester")
+}
+
+// ----------------------------------------------------------------------------
+// 2. BatchPaymentRequest Model (فرم درخواست پرداخت تجمیعی - ۱۰ تا ۱۵ ردیف پرداختی)
+// ----------------------------------------------------------------------------
+model BatchPaymentRequest {
+  id           String        @id @default(cuid())
+  trackingCode String        @unique // کد رهگیری تجمیعی (مثلاً BAT-1403-101)
+  title        String        // عنوان درخواست تجمیعی (مثلاً پرداخت پاداش و ماموریت پرسنل فنی)
+  totalAmount  Float         // جمع کل مبالغ ردیف‌ها (ریال)
+  itemCount    Int           // تعداد کل ردیف‌های پرداختی
+  status       RequestStatus @default(Pending_Approver)
+  createdAt    DateTime      @default(now())
+
+  requesterId  String
+  requester    User          @relation("BatchRequester", fields: [requesterId], references: [id])
+
+  items        PaymentRequest[]
+}
+
+// ----------------------------------------------------------------------------
+// 3. AdvanceRequest Model (فرم درخواست مساعده حقوق)
+// ----------------------------------------------------------------------------
+model AdvanceRequest {
+  id                 String        @id @default(cuid())
+  trackingCode       String        @unique // کد رهگیری (مثلاً ADV-1403-101)
+  requestedMonth     String        // ماه درخواستی
+  amount             Float         // مبلغ درخواستی (ریال)
+  suggestedDate      String        // تاریخ پیشنهادی دریافت
+  reason             String        // علت درخواست مساعده
+
+  // فیلدهای حسابداری
+  hasPreviousAdvance Boolean?      // آیا مساعده تسویه نشده دارد؟
+  approvedAmount     Float?        // مبلغ تایید شده حسابداری
+  accountingNote     String?       // یادداشت حسابداری
+
+  // نظر تاییدکننده و رد
+  approverNote       String?       // نظر سرپرست/تاییدکننده
+  rejectionReason    String?
+
+  // خزانه‌داری
+  paidAt             DateTime?
+  paidDateJalali     String?
+  paidBankName       String?       // نام بانکی که از آن پرداخت شد (بدون نیاز به موجودی)
+
+  status             RequestStatus @default(Pending_Approver)
+  createdAt          DateTime      @default(now())
+
+  // ارتباطات
+  requesterId        String
+  requester          User          @relation("AdvanceRequester", fields: [requesterId], references: [id])
+
+  approverId         String?
+  approver           User?         @relation("AdvanceApprover", fields: [approverId], references: [id])
+
+  accountingId       String?
+  accounting         User?         @relation("AdvanceAccounting", fields: [accountingId], references: [id])
+
+  treasuryId         String?
+  treasury           User?         @relation("AdvanceTreasury", fields: [treasuryId], references: [id])
+
+  dailyCoverId       String?
+  dailyCover         DailyCover?   @relation(fields: [dailyCoverId], references: [id])
+
+  receipts           ReceiptArchive[]
+}
+
+// ----------------------------------------------------------------------------
+// 4. PaymentRequest Model (فرم دستور پرداخت وجه - تکی یا ردیف تجمیعی)
+// ----------------------------------------------------------------------------
+model PaymentRequest {
+  id              String        @id @default(cuid())
+  trackingCode    String        @unique // کد رهگیری (مثلاً PAY-1403-201)
+  dueDate         String        // تاریخ سررسید
+  priority        Priority      @default(Normal)
+  costCenter      String        // مرکز هزینه
+  description     String        // شرح پرداخت
+  amount          Float         // مبلغ (ریال)
+  payeeName       String        // نام ذینفع
+  accountOrCard   String        // شماره حساب یا کارت
+  iban            String        // شماره شبا
+  bankName        String        // بانک مقصد
+  invoiceNumber   String        // شماره فاکتور
+
+  // اتصال به درخواست تجمیعی (در صورت ثبت گروهی)
+  batchId         String?
+  batchRequest    BatchPaymentRequest? @relation(fields: [batchId], references: [id])
+
+  // یادداشت‌های تایید
+  approverNote    String?
+  accountingNote  String?
+  rejectionReason String?
+
+  // خزانه‌داری
+  paidAt          DateTime?
+  paidDateJalali  String?
+  paidBankName    String?       // نام بانک پرداخت‌کننده منتخب خزانه
+
+  status          RequestStatus @default(Pending_Approver)
+  createdAt       DateTime      @default(now())
+
+  requesterId     String
+  requester       User          @relation("PaymentRequester", fields: [requesterId], references: [id])
+
+  approverId      String?
+  approver        User?         @relation("PaymentApprover", fields: [approverId], references: [id])
+
+  accountingId    String?
+  accounting      User?         @relation("PaymentAccounting", fields: [accountingId], references: [id])
+
+  treasuryId      String?
+  treasury        User?         @relation("PaymentTreasury", fields: [treasuryId], references: [id])
+
+  dailyCoverId    String?
+  dailyCover      DailyCover?   @relation(fields: [dailyCoverId], references: [id])
+
+  receipts        ReceiptArchive[]
+}
+
+// ----------------------------------------------------------------------------
+// 5. ManualPayment Model (پرداخت‌های تلفنی / کاغذی مستقیم خزانه)
+// ----------------------------------------------------------------------------
+model ManualPayment {
+  id           String      @id @default(cuid())
+  trackingCode String      @unique
+  amount       Float
+  payee        String
+  description  String
+  bankName     String      // نام بانک منتخب
+  date         String
+  orderedBy    String      // دستوردهنده تلفنی/کاغذی
+  createdAt    DateTime    @default(now())
+
+  createdById  String
+  createdBy    User        @relation("ManualPaymentCreator", fields: [createdById], references: [id])
+
+  dailyCoverId String?
+  dailyCover   DailyCover? @relation(fields: [dailyCoverId], references: [id])
+
+  receipts     ReceiptArchive[]
+}
+
+// ----------------------------------------------------------------------------
+// 6. DailyCover Model (روکش روزانه خزانه‌داری)
+// ----------------------------------------------------------------------------
+model DailyCover {
+  id          String      @id @default(cuid())
+  coverNumber String      @unique
+  date        String      // تاریخ روز
+  bankName    String      // نام بانک یا کلیه بانک‌ها
+  totalIn     Float       @default(0) // کل ورودی روز (ریال)
+  totalOut    Float       @default(0) // کل خروجی روز (ریال)
+  bankFee     Float       @default(0) // کارمزدهای بانکی (ریال)
+  note        String?
+  status      CoverStatus @default(Open)
+  closedAt    DateTime?
+  createdAt   DateTime    @default(now())
+
+  advanceRequests AdvanceRequest[]
+  paymentRequests PaymentRequest[]
+  manualPayments  ManualPayment[]
+}
+
+// ----------------------------------------------------------------------------
+// 7. ReceiptArchive Model (بایگانی فیش‌های بانکی)
+// ----------------------------------------------------------------------------
+model ReceiptArchive {
+  id               String   @id @default(cuid())
+  fileUrl          String
+  fileName         String
+  bankRefNumber    String   // شماره پیگیری / مرجع
+  paymentType      String   // ADVANCE | PAYMENT | BATCH | MANUAL
+  relatedPaymentId String
+  uploadedBy       String
+  uploadedAt       DateTime @default(now())
+
+  advanceRequestId String?
+  advanceRequest   AdvanceRequest? @relation(fields: [advanceRequestId], references: [id])
+
+  paymentRequestId String?
+  paymentRequest   PaymentRequest? @relation(fields: [paymentRequestId], references: [id])
+
+  manualPaymentId  String?
+  manualPayment    ManualPayment?  @relation(fields: [manualPaymentId], references: [id])
+}
