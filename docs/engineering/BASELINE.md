@@ -1,4 +1,12 @@
-# خط مبنای مهندسی شاهراه — KHZ-BASELINE-v28-20261022
+# خط مبنای مهندسی شاهراه — KHZ-BASELINE-v50-20261023
+
+## مبنای فعال v50 — PASS
+
+نسخهٔ واقعاً منتشرشده روی `https://shahrahsystem.ir` از `2026-10-23T20:13:58.040Z`: سورس Git `5cb1859f7dd194dec071b4ff7d0a15fe561bcec1`، manifest=`abd40ac3ff0a1da8fcc8e9e5a71d50d2fb5c72e455851b77c2f83826b8a7f314`، ۳۸ خروجی و ۱۰۷ منبع در manifest. [گزارش انتشار و حدود آزمون](../operations/release-v50-readiness.md) و [ADR-017](../decisions/ADR-017-release-notification-audience-and-report-scheduling.md) مرجع تازه‌اند؛ v28 پایین فقط تاریخچه است.
+
+همانSQLiteباschema1 وDBجاری؛ رمزadmin،فایل‌ها،سوابق وبکاپ‌هایقبلی محفوظ. قرارداد سازگاری `KHZ-STATE-COMPAT-v50-001` وrestore/rollback/crash rehearsal ثبت‌اند. مبناشامل۳۷۶تست هرadapter،۱۲مسیرمرورگر،Linux۶۰نشست/۱۰k باثبتp95=۴٫۴۰۵s است؛ پیامک/بانکواقعی وsoakNOT RUN،cold≈۳۱s/report≈۷s محدودیت‌صریح‌اند. تغییراتآینده ابتداStagingمستقل وپذیرشصریحمالک بخواهند؛ اینانتشارمجوزدائمی نیست.
+
+## مبنای تاریخی v28 — KHZ-BASELINE-v28-20261022
 
 ثبت: ۲۰۲۶/۱۰/۲۲، Asia/Tehran. این مرحله فقط اتصال چارچوب و مستندسازی است؛ هیچ قابلیت، schema، داده، dependency، تنظیم سراسری یا انتشار تازه تغییر نکرد. نامزد مبنا بعداً با رکورد نسخهٔ تازه **supersede** شود؛ تاریخچه حذف نشود.
 

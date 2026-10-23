@@ -1,10 +1,10 @@
 # Khazaneh — پرتال خزانه و درخواست‌های مالی
 
-## وضعیت جاری — v28 منتشرشده؛ چارچوب مهندسی متصل
+## وضعیت جاری — v50 منتشرشده؛ چارچوب مهندسی متصل
 
 فرایند مصوبِ تمام تغییرات آینده: **توسعه و تست → [Staging خصوصی](docs/operations/development-staging-release.md) → تأیید صریح مالک → انتشار کنترل‌شده**. راه‌اندازی Staging یا درخواست توسعه، مجوز انتشار Production نیست.
 
-مرجع شروع توسعه: [AGENTS.md](AGENTS.md)، [Baseline نسخهٔ v28](docs/engineering/BASELINE.md) و [قواعد اختصاصی خزانه](docs/engineering/business-rules.md). نسخهٔ واقعاً منتشرشده روی شاهراه manifest `b26471c412d1a58c9eaa8e7ab4acb80f5c96274da0453712c1c7e6dd2a591f73` و SQLite است. با مجوز مالک، سورس جاری در [مخزن رسمی](https://github.com/rbayat2k-art/khazaneh) ذخیره می‌شود؛ [محدودهٔ snapshot و فایل‌های خصوصیِ خارج از Git](docs/engineering/GITHUB-SNAPSHOT.md) را بخوانید. شواهد انتشار و بازیابی در **بخش بالای** [production-hardening](docs/operations/production-hardening.md) است. بخش‌های نسخه‌های قبلی زیر، تاریخچه‌اند؛ وضعیت جاری یا مجوز حذف/انتشار آینده نیستند.
+مرجع شروع توسعه: [AGENTS.md](AGENTS.md)، [Baseline نسخهٔ v50](docs/engineering/BASELINE.md) و [قواعد اختصاصی خزانه](docs/engineering/business-rules.md). نسخهٔ واقعاً منتشرشده روی شاهراه manifest `abd40ac3ff0a1da8fcc8e9e5a71d50d2fb5c72e455851b77c2f83826b8a7f314` و SQLite است؛ سورس freeze در Git `5cb1859f7dd194dec071b4ff7d0a15fe561bcec1` است. [گزارش نهایی v50 و حدود آزمون](docs/operations/release-v50-readiness.md) را بخوانید. داده‌ها، پیوست‌ها و رمز admin حفظ شدند؛ ارسال واقعی پیامک و استعلام بانکی همچنان غیرفعال‌اند. با مجوز مالک، سورس جاری در [مخزن رسمی](https://github.com/rbayat2k-art/khazaneh) ذخیره شده؛ [محدودهٔ snapshot و فایل‌های خصوصیِ خارج از Git](docs/engineering/GITHUB-SNAPSHOT.md) را بخوانید. شواهد انتشار و بازیابی در **بخش بالای** [production-hardening](docs/operations/production-hardening.md) است. بخش‌های نسخه‌های قبلی زیر، تاریخچه‌اند؛ وضعیت جاری یا مجوز حذف/انتشار آینده نیستند.
 
 ## checkpoint تاریخی v22 — انتشار در آن مرحله متوقف بود
 
