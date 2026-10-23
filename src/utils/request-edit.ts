@@ -1,5 +1,6 @@
 import type { AdvanceRequest, AttachmentFile, BatchItem, PaymentRequest } from '../types/treasury';
 import {bankFieldsError,normalizedBankFields} from './bank-identifiers';
+import {jalaliDateError,normalizeDateDigits} from './jalali-date';
 
 export type SubmittedEditKind = 'ADVANCE' | 'PAYMENT' | 'BATCH_ITEM';
 export type EditableRequestRow = AdvanceRequest | PaymentRequest | BatchItem;
@@ -31,13 +32,14 @@ export function markReviewStarted(row: EditableRequestRow): void {
   row.reviewStartedAt ||= new Date().toISOString();
 }
 
-export function validateSubmittedChanges(changes: unknown, kind: SubmittedEditKind, row: EditableRequestRow): string | null {
+export function validateSubmittedChanges(changes: unknown, kind: SubmittedEditKind, row: EditableRequestRow,requireCard=kind==='PAYMENT'||kind==='BATCH_ITEM'&&(row as BatchItem).itemType!=='ADVANCE'): string | null {
   if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return 'اطلاعات ویرایش معتبر نیست.';
   const common=['amount','description','attachments'];
   const fields=kind === 'ADVANCE' ? [...common,'requestedMonth','suggestedDate'] : [...common,'payeeName','accountOrCard','iban','bankName','invoiceNumber','costCenter',...(kind === 'PAYMENT' ? ['dueDate','priority'] : ['requestedMonth'])];
   const entries=Object.entries(changes);
   if (!entries.length || entries.some(([key])=>!fields.includes(key))) return 'فقط اطلاعات فرم قابل ویرایش است؛ وضعیت و ارجاع تغییر نمی‌کند.';
   for (const [key,value] of entries) {
+    if(['dueDate','suggestedDate'].includes(key)){const error=jalaliDateError(value);if(error)return error;}
     if (key === 'amount') {if (!Number.isSafeInteger(value) || Number(value)<=0) return 'مبلغ باید عدد صحیح مثبت به ریال باشد.';}
     else if (key === 'priority') {if (!['Normal','Urgent'].includes(String(value))) return 'اولویت معتبر نیست.';}
     else if (key === 'attachments') {
@@ -50,12 +52,13 @@ export function validateSubmittedChanges(changes: unknown, kind: SubmittedEditKi
       }
     } else if (typeof value!=='string' || value.length>4000 || (['description','payeeName','requestedMonth'].includes(key) && !value.trim())) return 'فیلد متنی الزامی یا قالب اطلاعات معتبر نیست.';
   }
-  if(kind!=='ADVANCE')return bankFieldsError({...row,...changes as object} as SubmittedRequestChanges);
+  if(kind!=='ADVANCE')return bankFieldsError({...row,...changes as object} as SubmittedRequestChanges,requireCard);
   return null;
 }
 
 export function applySubmittedChanges(row: EditableRequestRow, changes: SubmittedRequestChanges, kind: SubmittedEditKind, requesterId: string): void {
   const next=normalizedBankFields({...changes}) as Record<string,unknown>;
+  for(const key of ['dueDate','suggestedDate'])if(typeof next[key]==='string')next[key]=normalizeDateDigits(next[key]);
   if(changes.attachments)next.attachments=changes.attachments.map(file=>row.attachments?.find(prior=>prior.id===file.id)||{...file,uploadedAt:new Date().toISOString(),uploadedBy:requesterId});
   if (kind==='ADVANCE' && 'description' in next) {next.reason=next.description;delete next.description;}
   Object.assign(row,next);

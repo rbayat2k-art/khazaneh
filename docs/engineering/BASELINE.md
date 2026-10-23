@@ -20,6 +20,8 @@
 
 ## اتصال چارچوب دائمی، نه نصب دوباره
 
+**تکمیل همان روز — فرایند دائمی:** [ADR-008](../decisions/ADR-008-private-staging-owner-release-approval.md) و [راهنمای Staging/انتشار](../operations/development-staging-release.md) اکنون مرجع اجرای تغییرات آینده‌اند. HEAD سورس v28 در Git/GitHub `cb8b87b8f5a53e49b28f955e52e56932a2689fd4` است؛ ابزارهای محیط و اسناد جدید روی شاخهٔ `codex/staging-workflow`، بدون commit/push جدیدند. بررسی تازهٔ خواندنی۳۰ خروجی سرور، همان manifest مبنا و دو پردازش online را تأیید کرد؛ payload زنده وDB خوانده/تغییر داده نشدند. این مرحله هنوز هیچ نسخهٔ تازه روی Production منتشر نمی‌کند و تأیید مالک برای candidate بعدی در انتظار است.
+
 - PASS — قواعد `C:/Users/reza/.codex/AGENTS.md` با marker `codex-engineering:v1` خوانده و در این مأموریت اعمال شدند؛ AGENTS محلی پروژه مسیر آن را الزامی می‌کند. overrides سراسری تازه‌ای ساخته نشد.
 - PASS — هر ده مهارت زیر `C:/Users/reza/.agents/skills/<name>/SKILL.md` خوانا و در کاتالوگ runtime همین نوبت شناخته‌شده‌اند: requirements-discovery، architecture-design، software-project-start، existing-project-audit، database-migration، security-audit، automated-testing، performance-testing، safe-deployment، code-review. در این کار فقط existing-project-audit و documentation-and-adrs استفاده شدند؛ برای راستی‌آزمایی native نقش‌ها، openai-docs نیز به‌صورت محدود استفاده شد. دو مهارت اخیر خارج از مجموعهٔ ده‌تایی ولی از قبل نصب‌شده‌اند.
 - PASS — شش فایل `C:/Users/reza/.codex/agents/<name>.toml` با name/description/developer_instructions موجودند؛ نقش‌ها در جدول پایین‌اند. یک بازبین مستقل واقعاً با واگذاری صریحِ نقش devops_reviewer کار خواندنی انجام داد. واگذاری صریح را انتخاب native نقش از enum ابزار معرفی نمی‌کنیم.

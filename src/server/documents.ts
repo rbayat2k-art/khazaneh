@@ -12,7 +12,7 @@ export function inlineDocumentError(value:unknown):string|null {
 }
 
 export function documentInputError(body:any,route:string):string|null {
-  if(!['/advance-requests','/payment-requests','/batch-payments','/requests/resubmit','/treasury/execute-payment','/treasury/manual-payment'].includes(route))return null;
+  if(!['/advance-requests','/payment-requests','/batch-payments','/requests/resubmit','/treasury/execute-payment','/treasury/manual-payment','/treasury/external-order'].includes(route))return null;
   const lists=[body.attachments,body.newAttachments,...(Array.isArray(body.items)?body.items.map((item:any)=>item?.attachments):[])];
   for(const list of lists){if(list===undefined)continue;if(!Array.isArray(list)||list.length>50)return 'فهرست پیوست‌ها معتبر نیست.';
     for(const file of list){if(!file||typeof file.id!=='string'||!file.id||typeof file.name!=='string'||!file.name||file.name.length>255||!Number.isSafeInteger(file.size)||file.size<0||file.size>10*1024*1024||typeof file.type!=='string')return 'اطلاعات پیوست معتبر نیست.';const error=inlineDocumentError(file.url);if(error)return error;}

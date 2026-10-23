@@ -15,7 +15,7 @@ const headings=['ثبت درخواست مساعده حقوق تکی',/^ثبت م
    if(width<768)await page.waitForFunction(()=>document.querySelector('aside[aria-label="ناوبری اصلی پرتال"]').getBoundingClientRect().left>=innerWidth-1);
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
    if(i===2){
-    const form=page.locator('form'),description=form.locator('textarea'),center=form.locator('select').first(),recipient=form.locator('input[type=text]').first();
+    const form=page.locator('form'),description=form.locator('textarea'),center=form.locator('select').first(),recipient=form.locator('input[type=text]:not([data-form-value=rial])').first();
     assert.deepEqual(await form.locator('textarea,select,input:not([type=file])').evaluateAll(els=>els.slice(0,3).map(el=>el.tagName)),['TEXTAREA','SELECT','INPUT']);
     assert.ok((await description.boundingBox()).y<(await center.boundingBox()).y);
     assert.ok((await center.boundingBox()).y<(await recipient.boundingBox()).y);

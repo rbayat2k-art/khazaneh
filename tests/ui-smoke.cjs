@@ -63,8 +63,8 @@ async function submit(page, route, name) {
     await userPage.getByRole('button',{name:'مساعده حقوق تکی',exact:true}).click();
     await userPage.getByText('ثبت درخواست مساعده حقوق تکی',{exact:true}).waitFor();
     const form=userPage.locator('form');
-    await form.locator('input[type=text]').nth(0).fill('مهر ۱۴۰۵');
-    await form.locator('input[type=number]').fill('10000');
+    await form.locator('input[type=text]:not([data-form-value=rial])').nth(0).fill('مهر ۱۴۰۵');
+    await form.locator('input[data-form-value=rial]').fill('10000');
     await form.locator('textarea').fill('درخواست آزمایشی از مسیر واقعی مرورگر');
     const create=userPage.waitForResponse(r=>r.url().endsWith('/api/advance-requests'));
     await form.locator('button[type=submit]').click();const created=await create;assert.equal(created.status(),200);

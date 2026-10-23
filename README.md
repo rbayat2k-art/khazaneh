@@ -2,6 +2,8 @@
 
 ## وضعیت جاری — v28 منتشرشده؛ چارچوب مهندسی متصل
 
+فرایند مصوبِ تمام تغییرات آینده: **توسعه و تست → [Staging خصوصی](docs/operations/development-staging-release.md) → تأیید صریح مالک → انتشار کنترل‌شده**. راه‌اندازی Staging یا درخواست توسعه، مجوز انتشار Production نیست.
+
 مرجع شروع توسعه: [AGENTS.md](AGENTS.md)، [Baseline نسخهٔ v28](docs/engineering/BASELINE.md) و [قواعد اختصاصی خزانه](docs/engineering/business-rules.md). نسخهٔ واقعاً منتشرشده روی شاهراه manifest `b26471c412d1a58c9eaa8e7ab4acb80f5c96274da0453712c1c7e6dd2a591f73` و SQLite است. با مجوز مالک، سورس جاری در [مخزن رسمی](https://github.com/rbayat2k-art/khazaneh) ذخیره می‌شود؛ [محدودهٔ snapshot و فایل‌های خصوصیِ خارج از Git](docs/engineering/GITHUB-SNAPSHOT.md) را بخوانید. شواهد انتشار و بازیابی در **بخش بالای** [production-hardening](docs/operations/production-hardening.md) است. بخش‌های نسخه‌های قبلی زیر، تاریخچه‌اند؛ وضعیت جاری یا مجوز حذف/انتشار آینده نیستند.
 
 ## checkpoint تاریخی v22 — انتشار در آن مرحله متوقف بود

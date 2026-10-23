@@ -1,29 +1,40 @@
 import express from 'express';
+import {parseReportFilters,buildFinancialReportAsync,financialReportPage,reportError} from './src/utils/financial-report';
+import {financialReportState,reportSourceStillVisible} from './src/server/financial-report';
 import compression from 'compression';
 import {freeze} from 'immer';
 import {createMutationRoutes} from './src/server/mutation-queue';
+import {installBankInquiry} from './src/server/bank-inquiry-runtime';
 import {stopServer,PendingWork} from './src/server/shutdown';
 import {StateSync} from './src/server/state-sync';
 import {CommittedJson} from './src/server/committed-json';
 import {SqliteRecords} from './src/server/sqlite-records';
 import {STORE_LOCK_NAME} from './src/server/owner-lock';
 import {companyPolicy} from './src/server/company-access';
-import {notificationVisible} from './src/server/notification-access';
+import {notificationVisible,notificationDeliveryEligible,notificationQueueAllowed} from './src/server/notification-access';
+import {notificationAudiences,paymentNotificationDrafts,reviewedNotification,NOTIFICATION_RETENTION} from './src/server/notification-routing';
 import {documentInputError,xmlText} from './src/server/documents';
 import { todayJalali as getTodayJalali, currentJalaliMonth } from './src/utils/current-date';
+import {normalizeFormDates} from './src/server/form-dates';
+import {externalInputError,entryOperation,previousEntry} from './src/server/external-entry';
 import crypto from 'crypto';
 const backgroundWrites=new PendingWork();
+let wakeBankInquiry=()=>{};
 import fs from 'fs';
 import path from 'path';
 import { authorizeRequest, canSeeRequest, canSeeNotificationTarget, scopeState } from './src/server/access-control';
 import { getUserRoles, hasSupervisorPermissions } from './src/utils/user-roles';
 import { applySubmittedChanges, markReviewStarted, validateSubmittedChanges } from './src/utils/request-edit';
+import {activeRequestProjection,publicBatch,markRequesterDeleted} from './src/utils/request-deletion';
 import {bankFieldsError,normalizedBankFields,bankIdentifierChanged} from './src/utils/bank-identifiers';
 import {treasuryInput,validPaymentAllocation} from './src/server/treasury-input';
 import {privateSmsEvent,safeSmsLog,readSmsProviderBody} from './src/server/sms-security';
 import {reviewEditError,reviewEditEntry} from './src/utils/review-edit';
+import {prepareReviewCostCenter,applyReviewCostCenter,ReviewCostCenterError} from './src/server/review-cost-center';
 import { allocateMasterDataCode, immutableMasterDataCode, retainMasterDataHighWater, createMasterDataRow } from './src/server/master-data';
 import {applyRejectionDecision,type ReviewRow} from './src/utils/review-rejection';
+import {correctionTarget,correctionRecipientId,correctionStageAllowed,applyTreasuryReturn,applyTreasuryCorrection} from './src/server/treasury-correction';
+import {openTreasuryCorrection} from './src/utils/treasury-correction';
 import {assessBankImport,bankImportShapeError,type BankImportInput} from './src/utils/bank-account-import';
 import type {
   TreasuryDatabaseState,
@@ -1620,7 +1631,7 @@ const sanitizedStates=new WeakMap<TreasuryDatabaseState,TreasuryDatabaseState>()
 function sanitizeDbForClient(db: TreasuryDatabaseState): TreasuryDatabaseState {
   db=databaseSnapshots.snapshot(db);
   const cached=sanitizedStates.get(db);if(cached)return cached;
-  const { sessions: _sessions, ...rest } = db;
+  const { sessions: _sessions, ...rest } = activeRequestProjection(db);
   const safe=freeze({
     ...rest,
     users: (db.users || []).map((u) => sanitizeUserForClient(u, db)),
@@ -1721,6 +1732,7 @@ function reassignPendingApprovalsAndSubordinates(
         changedBy: actorName,
         changedAt: todayDate,
       });
+      pushAppNotification(db,{eventType:'REQUEST_SUBMITTED',title:'ارجاع درخواست منتظر به سرپرست جایگزین',body:'درخواست منتظر برای بررسی به شما ارجاع شد.',trackingCode:a.trackingCode,requestId:a.id,itemType:'ADVANCE',recipientUserId:toSupervisor.id,recipientRole:'APPROVER',actorName,targetSection:'APPROVER'});
       movedCount++;
     }
   }
@@ -1736,6 +1748,7 @@ function reassignPendingApprovalsAndSubordinates(
         changedBy: actorName,
         changedAt: todayDate,
       });
+      pushAppNotification(db,{eventType:'REQUEST_SUBMITTED',title:'ارجاع درخواست منتظر به سرپرست جایگزین',body:'درخواست منتظر برای بررسی به شما ارجاع شد.',trackingCode:p.trackingCode,requestId:p.id,itemType:'PAYMENT',recipientUserId:toSupervisor.id,recipientRole:'APPROVER',actorName,targetSection:'APPROVER'});
       movedCount++;
     }
   }
@@ -1755,6 +1768,7 @@ function reassignPendingApprovalsAndSubordinates(
               changedBy: actorName,
               changedAt: todayDate,
             });
+            pushAppNotification(db,{eventType:'REQUEST_SUBMITTED',title:'ارجاع درخواست منتظر به سرپرست جایگزین',body:'درخواست منتظر برای بررسی به شما ارجاع شد.',trackingCode:b.trackingCode,requestId:b.id,rowId:it.id,itemType:'BATCH_ITEM',recipientUserId:toSupervisor.id,recipientRole:'APPROVER',actorName,targetSection:'APPROVER'});
             movedCount++;
           }
         }
@@ -2129,7 +2143,7 @@ function saveDb(state: TreasuryDatabaseState): TreasuryDatabaseState {
   if(STORAGE_MODE==='sqlite'){
     const backups=path.join(DATA_DIR,'backups');fs.mkdirSync(backups,{recursive:true});
     databaseSnapshots.backup(path.join(backups,`treasury-${new Date().toISOString().slice(0,10)}.sqlite`));
-    databaseSnapshots.commitBacking(toDisk,state);return toDisk;
+    databaseSnapshots.commitBacking(toDisk,state);wakeBankInquiry();return toDisk;
   }
   // A complete temporary file is committed atomically; a failed write cannot erase the live database.
   const backupDir = path.join(DATA_DIR, 'backups');
@@ -2151,6 +2165,7 @@ function saveDb(state: TreasuryDatabaseState): TreasuryDatabaseState {
   databaseSnapshots.assertCurrent(state);
   fs.renameSync(temporary, DB_PATH);
   databaseSnapshots.publish(toDisk,written!);
+  wakeBankInquiry();
   // This is the frozen snapshot actually published AFTER the durable commit.
   // Responses must not materialize the still-live draft's history a second time.
   return toDisk;
@@ -2160,16 +2175,24 @@ function pushAppNotification(
   db: TreasuryDatabaseState,
   payload: Omit<AppNotification, 'id' | 'createdAt' | 'readByUserIds'>
 ): AppNotification {
+  const created=notificationAudiences(payload).map(audience=>pushAddressedNotification(db,audience));
+  return created[0];
+}
+
+function pushAddressedNotification(
+  db: TreasuryDatabaseState,
+  payload: Omit<AppNotification, 'id' | 'createdAt' | 'readByUserIds'>
+): AppNotification {
   if (!db.notifications) db.notifications = [];
   const notif: AppNotification = {
     ...payload,
-    id: `ntf-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    id: `ntf-${crypto.randomUUID()}`,
     createdAt: `${getTodayJalali()} - ${new Date().toTimeString().slice(0, 5)}`,
     readByUserIds: [],
   };
   db.notifications.unshift(notif);
-  if (db.notifications.length > 150) {
-    db.notifications = db.notifications.slice(0, 150);
+  if (db.notifications.length > NOTIFICATION_RETENTION) {
+    db.notifications = db.notifications.slice(0, NOTIFICATION_RETENTION);
   }
 
   // Trigger optional SMS notification if SMS gateway is enabled and event is checked
@@ -2200,9 +2223,13 @@ function pushAppNotification(
       void backgroundWrites.run(async()=>{try{
         const dispatchDb=loadDb(),state=databaseSnapshots.snapshot(dispatchDb),committed=state.notifications?.find(n=>n.id===notif.id);
         if(!committed)return;
-        const targetUser=state.users.find(u=>u.phone&&notificationVisible(committed,u,state,id=>canSeeNotificationTarget(id,u,state,computeEffectiveUserAuth(u,state))));
-        if(!targetUser?.phone)return;
-        const result=await dispatchRealSms(dispatchDb, {
+        const recipients=state.users.filter(u=>u.phone&&notificationQueueAllowed(committed,computeEffectiveUserAuth(u,state).effectivePermissions)&&notificationDeliveryEligible(committed,u,state,id=>canSeeNotificationTarget(id,u,state,computeEffectiveUserAuth(u,state))));
+        for(const candidate of recipients){
+        // Re-evaluate each audience after any awaited provider call: access may
+        // have been revoked while another recipient's request was in flight.
+        const currentDb=loadDb(),currentState=databaseSnapshots.snapshot(currentDb),current=currentState.notifications?.find(n=>n.id===notif.id),targetUser=currentState.users.find(u=>u.id===candidate.id);
+        if(!current||!targetUser?.phone||!notificationQueueAllowed(current,computeEffectiveUserAuth(targetUser,currentState).effectivePermissions)||!notificationDeliveryEligible(current,targetUser,currentState,id=>canSeeNotificationTarget(id,targetUser,currentState,computeEffectiveUserAuth(targetUser,currentState))))continue;
+        const result=await dispatchRealSms(currentDb, {
           eventType: smsEventType,
           recipientName: targetUser.name,
           recipientPhone: targetUser.phone,
@@ -2219,6 +2246,7 @@ function pushAppNotification(
           } catch {
             // ignore background save error
           }
+        }
       }catch{/* Unknown commit or audience: no external delivery. */}});
     }
   }
@@ -2324,7 +2352,7 @@ async function startServer() {
     };
     res.json = (body: any) => {
       if (body && typeof body === 'object') {
-        for(const key of ['item','batch','receipt','manualPayment'])if(body[key]&&typeof body[key]==='object')body={...body,[key]:databaseSnapshots.snapshot(body[key])};
+        for(const key of ['item','batch','receipt','manualPayment'])if(body[key]&&typeof body[key]==='object')body={...body,[key]:databaseSnapshots.snapshot(Object.hasOwn(body[key],'deletedItems')?publicBatch(body[key]):body[key])};
         if (Array.isArray(body.users) && Array.isArray(body.advanceRequests)) {
           const state=protectedState(body as TreasuryDatabaseState);return stateReply(state,state);
         }
@@ -2402,6 +2430,10 @@ async function startServer() {
     res.locals.viewer=user;res.locals.syncBinding=crypto.createHash('sha256').update(session.token+':'+user.id).digest('hex');res.locals.commandDb=db;return true;
   });
 
+  const bankInquiry=installBankInquiry(app,{read:readDb,load:loadDb,save:saveDb,auth:computeEffectiveUserAuth,session:resolveSessionUser,run:mutations.run,post:mutations.post});
+  wakeBankInquiry=bankInquiry.wake;
+  await bankInquiry.start();
+
   // 1. Get full database state
   app.get('/api/state', (req, res) => {
     if(req.query.sync&&req.query.sync!=='begin'){
@@ -2417,6 +2449,18 @@ async function startServer() {
   });
 
   // 1b. Mark notifications as read
+  for(const download of [false,true])app.get('/api/reports/treasury'+(download?'/export':''),async(req,res)=>{
+    try{const db=readDb(),viewer=res.locals.viewer as User,auth=computeEffectiveUserAuth(viewer,db),filters=parseReportFilters(req.query as Record<string,unknown>),source=financialReportState(sanitizeDbForClient(db),projectState(db,viewer),viewer,auth);
+      if(filters.company&&!source.companies?.some(c=>c.id===filters.company||c.name===filters.company))throw reportError('شرکت انتخاب‌شده خارج از محدوده مجاز است.',403);
+      const authority=stateAuthority(viewer,db),report=await buildFinancialReportAsync(source,filters,()=>new Promise<void>(resolve=>setImmediate(resolve)));
+      const latest=readDb(),current=resolveSessionUser(req,latest).user;
+      if(!current)throw reportError('نشست معتبر نیست؛ دوباره وارد شوید.',401);
+      if(stateAuthority(current,latest)!==authority||!reportSourceStillVisible(source,financialReportState(sanitizeDbForClient(latest),projectState(latest,current),current,computeEffectiveUserAuth(current,latest))))throw reportError('دسترسی گزارش تغییر کرده است؛ دوباره گزارش بگیرید.',403);
+      if(download&&report.warnings.inconsistent)throw reportError('تاریخچه پرداخت ناسازگار است؛ خروجی تا بررسی مسدود است.',409);
+      res.json({report:download?report:financialReportPage(report)});
+    }catch(error:any){res.status([400,401,403,409,413].includes(error.status)?error.status:500).json({error:error.status?error.message:'تهیه گزارش ناموفق بود؛ اطلاعاتی تغییر نکرد.'});}
+  });
+
   mutations.post('/api/notifications/read', (req, res) => {
     const db = loadDb();
     const { userId, notificationId } = req.body;
@@ -2426,7 +2470,7 @@ async function startServer() {
     if (!db.notifications) db.notifications = [];
 
     const viewer=res.locals.viewer as User,auth=computeEffectiveUserAuth(viewer,db);
-    const visible=(n:AppNotification)=>notificationVisible(n,viewer,db,id=>canSeeNotificationTarget(id,viewer,db,auth));
+    const visible=(n:AppNotification)=>notificationQueueAllowed(n,auth.effectivePermissions)&&notificationVisible(n,viewer,db,id=>canSeeNotificationTarget(id,viewer,db,auth));
 
     if (notificationId) {
       const target = db.notifications.find((n) => n.id === notificationId);
@@ -3867,6 +3911,7 @@ async function startServer() {
 
   // 5. Submit Advance Request (Single)
   mutations.post('/api/advance-requests', (req, res) => {
+    const dateError=normalizeFormDates(req.body,['suggestedDate'],true);if(dateError)return res.status(400).json({error:dateError});
     const db: TreasuryDatabaseState = res.locals.commandDb;
     const { requesterId, requestedMonth, amount, suggestedDate, reason, attachments } = req.body;
 
@@ -3876,7 +3921,9 @@ async function startServer() {
 
     const nextNum = 101 + db.advanceRequests.length;
     const numAmount = Number(amount) || 0;
+    const registrationAt = new Date();
     const newReq: AdvanceRequest = {
+      createdAtIso: registrationAt.toISOString(),
       id: `adv-${Date.now()}`,
       trackingCode: `ADV-${getTodayJalali().slice(0,4)}-${nextNum}`,
       requestedMonth: requestedMonth || currentJalaliMonth(),
@@ -3918,7 +3965,7 @@ async function startServer() {
       paidAt: null,
       paidDateJalali: null,
       dailyCoverId: null,
-      createdAt: getTodayJalali(),
+      createdAt: getTodayJalali(registrationAt),
     };
 
     db.advanceRequests.unshift(newReq);
@@ -3939,10 +3986,21 @@ async function startServer() {
   });
 
   // 6. Submit Payment Request (Single)
-  mutations.post('/api/payment-requests', (req, res) => {
-    const bankError=bankFieldsError(req.body);if(bankError)return res.status(400).json({error:bankError});
+  const submitSinglePayment = (req:express.Request,res:express.Response,external=false) => {
+    if(external){const error=externalInputError(req.body,false);if(error)return res.status(400).json({error});}
+    const dateError=normalizeFormDates(req.body,['dueDate'],!external);if(dateError)return res.status(400).json({error:dateError});
+    const bankError=bankFieldsError(req.body,true);if(bankError)return res.status(400).json({error:bankError});
     req.body=normalizedBankFields(req.body);
     const db: TreasuryDatabaseState = res.locals.commandDb;
+    const maker=res.locals.viewer as User,operation=external?entryOperation(req.body,false,maker):undefined;
+    if(operation){const previous=previousEntry(db,operation,false,maker);if(previous.error)return res.status(previous.status!).json({error:previous.error});if(previous.row){if(!canSeeRequest(previous.row as PaymentRequest,maker,db,computeEffectiveUserAuth(maker,db)))return res.status(403).json({error:'دسترسی به نتیجه این ثبت مجاز نیست.'});return res.json({success:true,item:previous.row,state:db});}}
+    if(external){const error=normalizeFormDates(req.body,['dueDate'],true);if(error)return res.status(400).json({error});}
+    const requiredText=(value:unknown)=>typeof value==='string'&&Boolean(value.trim());
+    if(!requiredText(req.body.description))return res.status(400).json({error:'شرح و بابت پرداخت را وارد کنید.'});
+    if(!requiredText(req.body.payeeName))return res.status(400).json({error:'نام گیرنده (صاحب حساب) را وارد کنید.'});
+    if(req.body.amount===undefined)return res.status(400).json({error:'مبلغ پرداخت را وارد کنید.'});
+    const policy=companyPolicy(res.locals.viewer as User,db);
+    if(!requiredText(req.body.costCenter)||!(db.costCenters||[]).some(cc=>cc.name===req.body.costCenter&&cc.isActive!==false&&policy.entity(cc)))return res.status(400).json({error:'مرکز هزینه فعال و مجاز را از فهرست انتخاب کنید.'});
     const {
       requesterId,
       dueDate,
@@ -3958,24 +4016,28 @@ async function startServer() {
       attachments,
     } = req.body;
 
-    const user = db.users.find((u) => u.id === requesterId) || db.users[0];
-    const supUser = user.supervisorId ? db.users.find((u) => u.id === user.supervisorId) : null;
+    const user = external?maker:db.users.find((u) => u.id === requesterId) || db.users[0];
+    const supervisorId=external?null:user.supervisorId;
+    const supUser = supervisorId ? db.users.find((u) => u.id === supervisorId) : null;
 
     const nextNum = 201 + db.paymentRequests.length;
     const numAmount = Number(amount) || 0;
+    const registrationAt = new Date();
     const newPay: PaymentRequest = {
+      ...(operation?{entryOperation:operation,externalOrder:{orderedBy:req.body.orderedBy.trim(),origin:'PHONE_OR_WRITTEN' as const}}:{}),
+      createdAtIso: registrationAt.toISOString(),
       id: `pay-${Date.now()}`,
       trackingCode: `PAY-${getTodayJalali().slice(0,4)}-${nextNum}`,
       dueDate: dueDate || getTodayJalali(),
       priority: priority === 'Urgent' ? 'Urgent' : 'Normal',
-      costCenter: costCenter || 'عمومی و اداری',
-      description: description || '',
+      costCenter,
+      description: description.trim(),
       amount: numAmount,
       initialAmount: numAmount,
-      payeeName: payeeName || '',
+      payeeName: payeeName.trim(),
       accountOrCard: accountOrCard || '',
       iban: iban || '',
-      bankName: bankName || 'بانک ملت',
+      bankName: bankName || '',
       invoiceNumber: invoiceNumber || `INV-${nextNum}`,
       batchId: null,
       batchTitle: null,
@@ -3983,13 +4045,13 @@ async function startServer() {
       approverNote: null,
       rejectionReason: null,
       returnedReason: null,
-      status: user.supervisorId ? 'Pending_Approver' : 'Pending_Accounting',
+      status: supervisorId ? 'Pending_Approver' : 'Pending_Accounting',
       version: 1,
       comments: [],
       auditHistory: [
         {
           id: `aud-${Date.now()}`,
-          action: 'ثبت اولیه دستور پرداخت تکی',
+          action: external?'ثبت دستور خارج سامانه برای تأیید حسابداری':'ثبت اولیه دستور پرداخت تکی',
           changedBy: user.name,
           changedAt: `${getTodayJalali()} - ${new Date().toTimeString().slice(0, 5)}`,
           newAmount: numAmount,
@@ -4001,8 +4063,8 @@ async function startServer() {
       requesterName: user.name,
       requesterPersonnelCode: user.personnelCode,
       department: user.department,
-      supervisorId: user.supervisorId || null,
-      supervisorName: supUser?.name || user.supervisorName || null,
+      supervisorId: supervisorId || null,
+      supervisorName: external?null:supUser?.name || user.supervisorName || null,
       accountingId: null,
       accountingName: null,
       treasuryId: null,
@@ -4011,7 +4073,7 @@ async function startServer() {
       paidAt: null,
       paidDateJalali: null,
       dailyCoverId: null,
-      createdAt: getTodayJalali(),
+      createdAt: getTodayJalali(registrationAt),
     };
 
     db.paymentRequests.unshift(newPay);
@@ -4029,11 +4091,13 @@ async function startServer() {
     });
     const committedState=saveDb(db);
     res.json({ success: true, item: newPay, state: committedState });
-  });
+  };
+  mutations.post('/api/payment-requests',(req,res)=>submitSinglePayment(req,res));
+  mutations.post('/api/treasury/external-order',(req,res)=>submitSinglePayment(req,res,true));
 
   // 7. Submit Batch / Aggregate Request (Payment or Advance)
   mutations.post('/api/batch-payments', (req, res) => {
-    for(const [i,row] of (req.body.items||[]).entries()){const error=bankFieldsError(row);if(error)return res.status(400).json({error:`ردیف ${i+1}: ${error}`});}
+    for(const [i,row] of (req.body.items||[]).entries()){const error=bankFieldsError(row,req.body.batchType!=='ADVANCE');if(error)return res.status(400).json({error:`ردیف ${i+1}: ${error}`});}
     req.body.items=(req.body.items||[]).map((row:any)=>normalizedBankFields(row));
     const db: TreasuryDatabaseState = res.locals.commandDb;
     const { requesterId, title, batchType = 'PAYMENT', items, attachments } = req.body;
@@ -4056,7 +4120,7 @@ async function startServer() {
         approvedAmount: amt,
         accountOrCard: it.accountOrCard || '',
         iban: it.iban || '',
-        bankName: it.bankName || 'بانک ملت',
+        bankName: it.bankName || '',
         description: it.description || title || 'پرداخت تجمیعی',
         invoiceNumber: it.invoiceNumber || `INV-B${nextBatchNum}-${index + 1}`,
         costCenter: it.costCenter || user.department,
@@ -4079,7 +4143,9 @@ async function startServer() {
 
     const totalAmount = parsedItems.reduce((sum: number, it: any) => sum + it.amount, 0);
 
+    const registrationAt = new Date();
     const newBatch: BatchPaymentRequest = {
+      createdAtIso: registrationAt.toISOString(),
       id: batchId,
       trackingCode: batchTrackingCode,
       batchType: batchType as 'PAYMENT' | 'ADVANCE',
@@ -4101,7 +4167,7 @@ async function startServer() {
       paidBankName: null,
       paidAt: null,
       paidDateJalali: null,
-      createdAt: getTodayJalali(),
+      createdAt: getTodayJalali(registrationAt),
       attachments: attachments || [],
       items: parsedItems,
     };
@@ -4131,12 +4197,22 @@ async function startServer() {
     const batch=itemType==='BATCH_ITEM' ? db.batchPayments.find(b=>b.id===requestId) : undefined;
     const row=itemType==='BATCH_ITEM' ? batch?.items.find(item=>item.id===rowId) : itemType==='ADVANCE' ? db.advanceRequests.find(r=>r.id===requestId) : db.paymentRequests.find(r=>r.id===requestId);
     if (!row) return res.status(404).json({error:'درخواست یا ردیف یافت نشد.'});
-    const error=validateSubmittedChanges(changes,itemType,row);
+    const error=validateSubmittedChanges(changes,itemType,row,itemType==='PAYMENT'||itemType==='BATCH_ITEM'&&batch?.batchType!=='ADVANCE');
     if(error)return res.status(400).json({error});
     applySubmittedChanges(row,changes,itemType,requesterId);
     if(batch)syncBatchStatus(batch);
     const committedState=saveDb(db);
     return res.json({success:true,item:row,state:committedState});
+  });
+
+  mutations.post('/api/requests/delete-submitted',(req,res)=>{
+    const db=loadDb(),{itemType,requestId,rowId,requesterId}=req.body;
+    const batch=itemType==='BATCH_ITEM'?db.batchPayments.find(b=>b.id===requestId):undefined;
+    const row=batch?batch.items.find(r=>r.id===rowId):itemType==='ADVANCE'?db.advanceRequests.find(r=>r.id===requestId):db.paymentRequests.find(r=>r.id===requestId);
+    if(!row)return res.status(404).json({error:'درخواست یا ردیف یافت نشد.'});
+    const actor=db.users.find(u=>u.id===requesterId)!,at=new Date().toISOString();markRequesterDeleted(row,actor,at);
+    if(batch){(batch.deletedItems||=[]).push(row as typeof batch.items[number]);batch.items=batch.items.filter(r=>r.id!==rowId);if(batch.items.length)syncBatchStatus(batch);else{batch.status='Closed';batch.totalAmount=0;batch.itemCount=0;batch.requesterDeletedAt=at;batch.requesterDeletedBy=actor.id;}}
+    const committedState=saveDb(db);return res.json({success:true,state:committedState});
   });
 
   // 8. Individual Row Review Action (Approve, Return for Revision, Edit Amount & Comment)
@@ -4195,6 +4271,8 @@ async function startServer() {
 
     const editError=reviewEditError(action,newAmount,amountChangeReason,comment);
     if(editError)return res.status(400).json({error:editError});
+    let centerChange:ReturnType<typeof prepareReviewCostCenter>;
+    try{centerChange=prepareReviewCostCenter(db,reviewer,req.body,rejection.parent,rejection.row);}catch(e){if(e instanceof ReviewCostCenterError)return res.status(e.status).json({error:e.message});throw e;}
     const todayDate = `${getTodayJalali()} - ${new Date().toTimeString().slice(0, 5)}`;
 
     if (itemType === 'BATCH_ITEM') {
@@ -4287,6 +4365,7 @@ async function startServer() {
           item.version = (item.version || 1) + 1;
         }
         item.auditHistory.push(reviewEditEntry(reviewer,item.status==='Pending_Accounting'?'ACCOUNTING':'APPROVER',todayDate,oldAmt,Number(newAmount),amountChangeReason,comment));
+        applyReviewCostCenter(item,centerChange,reviewer,item.status==='Pending_Accounting'?'ACCOUNTING':'APPROVER',todayDate,amountChangeReason);
         if (action === 'UPDATE_AND_APPROVE') {
           item.returnedReason = null;
           item.returnedByUserId = null;
@@ -4469,6 +4548,7 @@ async function startServer() {
           target.version = (target.version || 1) + 1;
         }
         target.auditHistory.push(reviewEditEntry(reviewer,target.status==='Pending_Accounting'?'ACCOUNTING':'APPROVER',todayDate,oldAmt,Number(newAmount),amountChangeReason,comment));
+        applyReviewCostCenter(target,centerChange,reviewer,target.status==='Pending_Accounting'?'ACCOUNTING':'APPROVER',todayDate,amountChangeReason);
         if (action === 'UPDATE_AND_APPROVE') {
           target.returnedReason = null;
           target.returnedByUserId = null;
@@ -4638,6 +4718,7 @@ async function startServer() {
           target.version = (target.version || 1) + 1;
         }
         target.auditHistory.push(reviewEditEntry(reviewer,target.status==='Pending_Accounting'?'ACCOUNTING':'APPROVER',todayDate,oldAmt,Number(newAmount),amountChangeReason,comment));
+        applyReviewCostCenter(target,centerChange,reviewer,target.status==='Pending_Accounting'?'ACCOUNTING':'APPROVER',todayDate,amountChangeReason);
         if (action === 'UPDATE_AND_APPROVE') {
           target.returnedReason = null;
           target.returnedByUserId = null;
@@ -4758,6 +4839,7 @@ async function startServer() {
     const failures: Array<{ id: string; reason: string }> = [];
     const modifiedBatches = new Set<BatchPaymentRequest>();
     let anyFinalApproved = false;
+    const changedRows:Array<{parent:any;row:any;itemType:AppNotification['itemType']}>=[];
 
     for (const it of items || []) {
       if (it.itemType === 'BATCH_ITEM') {
@@ -4837,6 +4919,7 @@ async function startServer() {
         }
         markReviewStarted(row);
         modifiedBatches.add(batch);
+        changedRows.push({parent:batch,row,itemType:'BATCH_ITEM'});
         successCount++;
       } else if (it.itemType === 'PAYMENT') {
         const pay = db.paymentRequests.find((p) => p.id === it.requestId);
@@ -4900,6 +4983,7 @@ async function startServer() {
           changedBy: reviewer.name,
           changedAt: todayDate,
         });
+        changedRows.push({parent:pay,row:pay,itemType:'PAYMENT'});
         successCount++;
       } else if (it.itemType === 'ADVANCE') {
         const adv = db.advanceRequests.find((a) => a.id === it.requestId);
@@ -4964,54 +5048,14 @@ async function startServer() {
           changedBy: reviewer.name,
           changedAt: todayDate,
         });
+        changedRows.push({parent:adv,row:adv,itemType:'ADVANCE'});
         successCount++;
       }
     }
 
     modifiedBatches.forEach((b) => syncBatchStatus(b));
 
-    if (successCount > 0) {
-      if (action === 'RETURN_FOR_REVISION') {
-        pushAppNotification(db, {
-          eventType: 'RETURNED_FOR_REVISION',
-          title: `برگشت گروهی ${successCount} ردیف جهت اصلاح`,
-          body: `${successCount} ردیف انتخابی توسط ${reviewer.name} جهت اصلاح به کارتابل متقاضیان برگشت داده شد.`,
-          trackingCode: `BULK-${successCount}`,
-          requestId: 'bulk',
-          itemType: 'BATCH',
-          recipientUserId: null,
-          recipientRole: 'REQUESTER',
-          actorName: reviewer.name,
-          targetSection: 'REQUESTER',
-        });
-      } else if (anyFinalApproved) {
-        pushAppNotification(db, {
-          eventType: 'FINAL_APPROVED_ACCOUNTING',
-          title: `تایید نهایی گروهی (${successCount} ردیف)`,
-          body: `${successCount} ردیف انتخابی توسط ${reviewer.name} تایید نهایی شد و به صف پرداخت خزانه ارسال گردید.`,
-          trackingCode: `BULK-${successCount}`,
-          requestId: 'bulk',
-          itemType: 'BATCH',
-          recipientUserId: null,
-          recipientRole: 'TREASURY',
-          actorName: reviewer.name,
-          targetSection: 'TREASURY',
-        });
-      } else {
-        pushAppNotification(db, {
-          eventType: 'APPROVED_SUPERVISOR',
-          title: `تایید گروهی سرپرست (${successCount} ردیف)`,
-          body: `${successCount} ردیف انتخابی توسط ${reviewer.name} تایید و به کارتابل حسابداری ارجاع شد.`,
-          trackingCode: `BULK-${successCount}`,
-          requestId: 'bulk',
-          itemType: 'BATCH',
-          recipientUserId: null,
-          recipientRole: 'ACCOUNTING',
-          actorName: reviewer.name,
-          targetSection: 'ACCOUNTING',
-        });
-      }
-    }
+    for(const target of changedRows)pushAppNotification(db,reviewedNotification(target.parent,target.row,target.itemType,action,reviewer.name,returnReason||''));
 
     const committedState=saveDb(db);
     res.json({
@@ -5024,7 +5068,23 @@ async function startServer() {
   });
 
   // 10. Resubmit Request / Row after Revision
+  mutations.post('/api/treasury/return-for-correction',(req,res)=>{
+    const db:TreasuryDatabaseState=res.locals.commandDb,{row,parent,batch}=correctionTarget(db,req.body),actor:User=res.locals.viewer;
+    const id=correctionRecipientId(parent,row!,req.body.recipientStage),recipient=db.users.find(u=>u.id===id);
+    if(!recipient||!correctionStageAllowed(recipient,req.body.recipientStage,computeEffectiveUserAuth(recipient,db))||!canSeeRequest(parent as any,recipient,db,computeEffectiveUserAuth(recipient,db)))return res.status(403).json({error:'گیرندهٔ واقعی این مرحله موجود، فعال یا دارای مجوز جاری نیست؛ شخص دیگری خودکار جایگزین نمی‌شود.'});
+    const at=new Date().toISOString();applyTreasuryReturn(row!,parent,actor,recipient,req.body.recipientStage,req.body.reason.trim(),at);if(batch)syncBatchStatus(batch);
+    pushAppNotification(db,{eventType:'RETURNED_FOR_REVISION',title:'عودت فنی خزانه برای اصلاح',body:'مشخصات فنی را اصلاح و مستقیم به خزانه ارسال کنید؛ اطلاعات مالی و تأییدها ثابت می‌مانند.',trackingCode:parent!.trackingCode,requestId:parent!.id,rowId:batch?row!.id:undefined,itemType:req.body.itemType,recipientUserId:recipient.id,actorName:actor.name,targetSection:'REQUESTER'});
+    const state=saveDb(db);return res.json({success:true,state});
+  });
   mutations.post('/api/requests/resubmit', (req, res) => {
+    const draft:TreasuryDatabaseState=res.locals.commandDb,technical=correctionTarget(draft,req.body);
+    if(technical.row&&openTreasuryCorrection(technical.row)){
+      const {row,parent,batch}=technical,actor:User=res.locals.viewer,assignment=row.treasuryCorrection!,treasury=draft.users.find(u=>u.id===assignment.byUserId);
+      if(!treasury||treasury.isActive===false||treasury.mustChangePassword||!computeEffectiveUserAuth(treasury,draft).effectivePermissions.canExecutePayment||!canSeeRequest(parent as any,treasury,draft,computeEffectiveUserAuth(treasury,draft)))return res.status(403).json({error:'مجوز جاری خزانه‌دار ارجاع‌دهنده معتبر نیست؛ اصلاح ارسال نشد.'});
+      applyTreasuryCorrection(row,req.body,actor,new Date().toISOString());if(batch)syncBatchStatus(batch);
+      pushAppNotification(draft,{eventType:'REQUEST_RESUBMITTED',title:'بازگشت اصلاح فنی به خزانه',body:'مشخصات فنی اصلاح شد؛ درخواست بدون تکرار تأیید در صف خزانه آماده بررسی است.',trackingCode:parent!.trackingCode,requestId:parent!.id,rowId:batch?row.id:undefined,itemType:req.body.itemType,recipientUserId:treasury.id,actorName:actor.name,targetSection:'TREASURY'});
+      const state=saveDb(draft);return res.json({success:true,returnedToTreasury:true,state});
+    }
     const bankError=bankFieldsError(req.body);if(bankError)return res.status(400).json({error:bankError});
     req.body=normalizedBankFields(req.body);
     const db = loadDb();
@@ -5049,7 +5109,7 @@ async function startServer() {
       if (!batch) return res.status(404).json({ error: 'گروه یافت نشد' });
       const item = batch.items.find((it) => it.id === rowId);
       if (!item) return res.status(404).json({ error: 'ردیف در گروه یافت نشد' });
-      const error=bankFieldsError({...item,...req.body});if(error)return res.status(400).json({error});
+      const error=bankFieldsError({...item,...req.body},batch.batchType!=='ADVANCE');if(error)return res.status(400).json({error});
 
       const sensitiveChanged =
         (amount !== undefined && Number(amount) !== Number(item.amount)) ||
@@ -5123,7 +5183,7 @@ async function startServer() {
     if (itemType === 'PAYMENT') {
       const target = db.paymentRequests.find((p) => p.id === requestId);
       if (!target) return res.status(404).json({ error: 'دستور پرداخت یافت نشد' });
-      const error=bankFieldsError({...target,...req.body});if(error)return res.status(400).json({error});
+      const error=bankFieldsError({...target,...req.body},true);if(error)return res.status(400).json({error});
 
       const sensitiveChanged =
         (amount !== undefined && Number(amount) !== Number(target.amount)) ||
@@ -5511,6 +5571,7 @@ async function startServer() {
   });
 
   mutations.post('/api/treasury/execute-payment', (req, res) => {
+    const dateError=normalizeFormDates(req.body,['dateJalali']);if(dateError)return res.status(400).json({error:dateError});
     const db: TreasuryDatabaseState = res.locals.commandDb;
     const {
       items, // array of { id: string, type: 'ADVANCE' | 'PAYMENT' | 'BATCH' | 'BATCH_ITEM', batchId?: string }
@@ -5889,25 +5950,15 @@ async function startServer() {
     };
 
     db.receiptArchives.unshift(newReceipt);
-    pushAppNotification(db, {
-      eventType: 'PAYMENT_EXECUTED',
-      receiptId: newReceipt.id,
-      title: `ثبت پرداخت خزانه و صدور فیش (${refNo})`,
-      body: `مبلغ ${totalPaidAmount.toLocaleString('fa-IR')} ریال از حساب مبدأ «${bankName}» ثبت و در پوشه روز ${executionDate} بایگانی گردید.`,
-      trackingCode: relatedCodes[0] || refNo,
-      requestId: relatedIds[0] || receiptId,
-      itemType: 'PAYMENT',
-      recipientUserId: null,
-      recipientRole: 'REQUESTER',
-      actorName: trsUser?.name || 'خزانه‌داری',
-      targetSection: 'REQUESTER',
-    });
+    for(const notice of paymentNotificationDrafts(db,newReceipt,trsUser.name))pushAppNotification(db,notice);
     const committedState=saveDb(db);
     res.json({ ok: true, success: true, receipt: newReceipt, state: sanitizeDbForClient(committedState) });
   });
 
   // 11. Treasury Manual / Phone Payments
   mutations.post('/api/treasury/manual-payment', (req, res) => {
+    const inputError=externalInputError(req.body,true);if(inputError)return res.status(400).json({error:inputError});
+    const dateError=normalizeFormDates(req.body,['date']);if(dateError)return res.status(400).json({error:dateError});
     const db = loadDb();
     const {
       amount,
@@ -5923,7 +5974,10 @@ async function startServer() {
     } = req.body;
 
     const { user: sessionUser } = resolveSessionUser(req, db);
-    const trsUser = sessionUser || db.users.find((u) => u.id === createdById);
+    const trsUser = sessionUser!;
+    const operation=entryOperation(req.body,true,trsUser),previous=previousEntry(db,operation,true,trsUser);
+    if(previous.error)return res.status(previous.status!).json({error:previous.error});
+    if(previous.row){if(!companyPolicy(trsUser,db).manual(previous.row as ManualPayment))return res.status(403).json({error:'دسترسی به نتیجه این ثبت مجاز نیست.'});return res.json({ok:true,success:true,manualPayment:previous.row,state:db});}
     const cleanSourceId = String(sourceBankAccountId || '').trim();
     if (!cleanSourceId) {
       return res.status(400).json({
@@ -5944,7 +5998,10 @@ async function startServer() {
     const payDate = date || getTodayJalali();
     const numericAmount = Number(amount) || 0;
 
+    const registrationAt = new Date();
     const newManual: ManualPayment = {
+      entryOperation:operation,
+      createdAtIso: registrationAt.toISOString(),
       id: `man-${Date.now()}`,
       trackingCode: `MAN-${getTodayJalali().slice(0,4)}-${nextNum}`,
       amount: numericAmount,
@@ -5966,10 +6023,8 @@ async function startServer() {
     const refNo = normalizeDigitsServer(bankRefNumber || '') || `${Math.floor(1000000000 + Math.random() * 9000000000)}`;
     const newReceipt: ReceiptArchive = {
       id: `rcp-${Date.now()}`,
-      fileUrl:
-        receiptFileUrl ||
-        createSampleReceiptSvgDataUrl(refNo, numericAmount, newManual.payee, chosenBank, payDate),
-      fileName: receiptFileName || `manual_receipt_${nextNum}.svg`,
+      fileUrl:receiptFileUrl,
+      fileName: receiptFileName,
       bankRefNumber: refNo,
       paymentType: 'MANUAL',
       relatedPaymentIds: [newManual.id],
@@ -6284,6 +6339,7 @@ async function startServer() {
 
   // 12. Close Daily Cover (NO BANK BALANCES - purely totals in/out)
   mutations.post('/api/treasury/daily-cover', (req, res) => {
+    const dateError=normalizeFormDates(req.body,['date']);if(dateError)return res.status(400).json({error:dateError});
     const db = loadDb();
     const { date, bankName, totalIn, bankFee, note, closedByUserId } = req.body;
 
@@ -6560,8 +6616,8 @@ async function startServer() {
         updatedAt: today,
       };
       companies.push(newComp);
-      // Also allow ADMIN roleConfig to access new company by default
-      for (const r of db.roleConfigs || []) {
+      // A new company must not silently expand other roles' approved scope.
+      for (const r of (db.roleConfigs || []).filter(r=>r.role==='ADMIN')) {
         if (!r.allowedCompanies.includes(cleanName)) {
           r.allowedCompanies.push(cleanName);
         }
@@ -7127,6 +7183,7 @@ async function startServer() {
   });
 
   const shutdown = () => {
+    bankInquiry.stop();wakeBankInquiry=()=>{};
     void stopServer(server,mutations,backgroundWrites).then(()=>process.exit(0)).catch(()=>{console.error('Graceful shutdown failed; process retained for recovery.');process.exitCode=1;});
   };
 

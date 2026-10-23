@@ -1,3 +1,4 @@
+import type {BankDestination,InquiryConfig,InquiryJob,InquiryOperation} from '../utils/bank-inquiry';
 export type BuiltInRole = 'ADMIN' | 'REQUESTER' | 'APPROVER' | 'ACCOUNTING' | 'TREASURY';
 export type Role = BuiltInRole | string;
 
@@ -18,6 +19,8 @@ export type TreasurySubTab =
   | 'COMPLETED'
   | 'BANK_ACCOUNTS'
   | 'MANUAL'
+  | 'EXTERNAL_ORDER'
+  | 'BANK_INQUIRY'
   | 'COVER'
   | 'ARCHIVE';
 
@@ -73,6 +76,20 @@ export interface AttachmentFile {
   uploadedBy?: string;
 }
 
+/** Optional technical-correction assignment; existing approvals and financial content stay pinned. */
+export interface TreasuryCorrection {
+  toUserId: string;
+  toName: string;
+  toStage: 'REQUESTER' | 'APPROVER' | 'ACCOUNTING';
+  byUserId: string;
+  byName: string;
+  reason: string;
+  at: string;
+  fromPool: 'Pending_Treasury' | 'In_Payment';
+  approvedVersion: number;
+  resolvedAt?: string;
+}
+
 export interface ReviewComment {
   id: string;
   authorId: string;
@@ -90,7 +107,8 @@ export interface ItemAuditEntry {
   actorId?: string;
   actorRole?: Role;
   stage?: 'REQUESTER' | 'APPROVER' | 'ACCOUNTING' | 'TREASURY';
-  decision?: 'SUBMIT' | 'RESUBMIT' | 'EDIT_SUBMITTED' | 'APPROVE' | 'RETURN_FOR_REVISION' | 'REJECT' | 'CLOSE_REJECTED' | 'UPDATE_AMOUNT' | 'PAY';
+  decision?: 'SUBMIT' | 'RESUBMIT' | 'EDIT_SUBMITTED' | 'DELETE_SUBMITTED' | 'APPROVE' | 'RETURN_FOR_REVISION' | 'REJECT' | 'CLOSE_REJECTED' | 'UPDATE_AMOUNT' | 'PAY';
+  previousStatus?: RequestStatus;
   version?: number;
   invalidatedByVersion?: number | null;
   previousAmount?: number;
@@ -185,6 +203,9 @@ export type AccessScope =
   | 'COMPANY_WIDE';
 
 export interface RolePermissionSet {
+  canManageBankInquiry?:boolean;
+  canInquireBankDetails?:boolean;
+  canConfirmBankOwner?:boolean;
   // 1. کارتابل درخواست‌ها و امور متقاضیان
   canViewRequests: boolean;           // مشاهده کارتابل و سوابق درخواست‌ها
   canCreateRequest: boolean;          // مجوز کلی ثبت درخواست جدید
@@ -225,6 +246,7 @@ export interface RolePermissionSet {
   canCloseDailyCover?: boolean;              // سازگاری با کلید قبلی
   canViewReceiptArchive?: boolean;           // سازگاری با کلید قبلی
   canExportReports: boolean;                 // تهیه خروجی اکسل (XLSX) و گزارش چاپی
+  canAccessTreasuryReports?:boolean; // گزارش جامع مستقل؛ صرفاً خواندن در شرکت‌های مجاز
 
   // 4. مدیریت اطلاعات پایه سازمان (منوی اطلاعات پایه)
   canManageCompanies?: boolean;           // تعریف و مدیریت شرکت‌ها و سازمان‌ها
@@ -300,6 +322,7 @@ export function getDefaultPermissionsForRole(
       canCloseDailyCover: true,
       canViewReceiptArchive: true,
       canExportReports: true,
+      canAccessTreasuryReports: ['ADMIN','ACCOUNTING','TREASURY'].includes(roleKey),
       canManageCompanies: true,
       canManageDepartments: true,
       canManageCostCenters: true,
@@ -350,6 +373,7 @@ export function getDefaultPermissionsForRole(
       canCloseDailyCover: false,
       canViewReceiptArchive: false,
       canExportReports: true,
+      canAccessTreasuryReports: ['ADMIN','ACCOUNTING','TREASURY'].includes(roleKey),
       canManageCompanies: false,
       canManageDepartments: false,
       canManageCostCenters: false,
@@ -400,6 +424,7 @@ export function getDefaultPermissionsForRole(
       canCloseDailyCover: false,
       canViewReceiptArchive: true,
       canExportReports: true,
+      canAccessTreasuryReports: ['ADMIN','ACCOUNTING','TREASURY'].includes(roleKey),
       canManageCompanies: false,
       canManageDepartments: false,
       canManageCostCenters: true,
@@ -450,6 +475,7 @@ export function getDefaultPermissionsForRole(
       canCloseDailyCover: true,
       canViewReceiptArchive: true,
       canExportReports: true,
+      canAccessTreasuryReports: ['ADMIN','ACCOUNTING','TREASURY'].includes(roleKey),
       canManageCompanies: false,
       canManageDepartments: false,
       canManageCostCenters: false,
@@ -500,6 +526,7 @@ export function getDefaultPermissionsForRole(
     canCloseDailyCover: false,
     canViewReceiptArchive: false,
     canExportReports: false,
+      canAccessTreasuryReports: ['ADMIN','ACCOUNTING','TREASURY'].includes(roleKey),
     canManageCompanies: false,
     canManageDepartments: false,
     canManageCostCenters: false,
@@ -519,11 +546,12 @@ export function normalizeRolePermissionSet(
   roleKey: string,
   baseTemplate?: BuiltInRole
 ): RolePermissionSet {
-  const defaults = getDefaultPermissionsForRole(roleKey, baseTemplate);
+  const defaults = {...getDefaultPermissionsForRole(roleKey, baseTemplate),canManageBankInquiry:roleKey==='ADMIN',canInquireBankDetails:roleKey==='ADMIN',canConfirmBankOwner:roleKey==='ADMIN'};
   if (!perms) return defaults;
   return {
     ...defaults,
     ...perms,
+    canAccessTreasuryReports:perms.canAccessTreasuryReports===undefined?defaults.canAccessTreasuryReports:perms.canAccessTreasuryReports===true,
     canAccessRequesterSection:
       perms.canAccessRequesterSection ??
       perms.canCreateRequest ??
@@ -626,6 +654,9 @@ export function normalizeRolePermissionSet(
       perms.canViewReceiptArchive ??
       perms.canExecutePayment ??
       defaults.canAccessTreasuryArchive,
+    canManageBankInquiry:perms.canManageBankInquiry??defaults.canManageBankInquiry,
+    canInquireBankDetails:perms.canInquireBankDetails??defaults.canInquireBankDetails,
+    canConfirmBankOwner:perms.canConfirmBankOwner??defaults.canConfirmBankOwner,
     canManageCompanies:
       perms.canManageCompanies ?? perms.canManageUsers ?? defaults.canManageCompanies,
     canManageDepartments:
@@ -854,7 +885,10 @@ export interface User {
   effectivePaymentLimitRial?: number;
 }
 
-export interface BatchItem {
+export interface BatchItem extends BankDestination {
+  treasuryCorrection?: TreasuryCorrection;
+  requesterDeletedAt?: string;
+  requesterDeletedBy?: string;
   reviewRejection?:ReviewRejection;
   reviewStartedAt?: string;
   requesterEditedAt?: string;
@@ -922,6 +956,10 @@ export interface BatchItem {
 }
 
 export interface BatchPaymentRequest {
+  createdAtIso?: string; // Server registration instant; legacy date-only records stay untouched.
+  requesterDeletedAt?: string;
+  requesterDeletedBy?: string;
+  deletedItems?: BatchItem[];
   companyId?: string;
   id: string;
   trackingCode: string;
@@ -953,7 +991,11 @@ export interface BatchPaymentRequest {
   items: BatchItem[];
 }
 
-export interface AdvanceRequest {
+export interface AdvanceRequest extends BankDestination {
+  createdAtIso?: string;
+  treasuryCorrection?: TreasuryCorrection;
+  requesterDeletedAt?: string;
+  requesterDeletedBy?: string;
   companyId?: string;
   reviewRejection?:ReviewRejection;
   reviewStartedAt?: string;
@@ -1028,7 +1070,13 @@ export interface AdvanceRequest {
   createdAt: string;
 }
 
-export interface PaymentRequest {
+export interface PaymentRequest extends BankDestination {
+  entryOperation?: {key:string;fingerprint:string};
+  externalOrder?: {orderedBy:string;origin:'PHONE_OR_WRITTEN'};
+  createdAtIso?: string;
+  treasuryCorrection?: TreasuryCorrection;
+  requesterDeletedAt?: string;
+  requesterDeletedBy?: string;
   companyId?: string;
   reviewRejection?:ReviewRejection;
   reviewStartedAt?: string;
@@ -1111,6 +1159,8 @@ export interface PaymentRequest {
 }
 
 export interface ManualPayment {
+  entryOperation?: {key:string;fingerprint:string};
+  createdAtIso?: string;
   id: string;
   trackingCode: string;
   amount: number;
@@ -1175,6 +1225,8 @@ export type NotificationEventType =
 
 export interface AppNotification {
   receiptId?: string;
+  /** Server-authored subset of the receipt, for this recipient's own payment summary. */
+  relatedPaymentIds?: string[];
   id: string;
   eventType: NotificationEventType;
   title: string;
@@ -1192,6 +1244,9 @@ export interface AppNotification {
 }
 
 export interface TreasuryDatabaseState {
+  bankInquiryConfig?:InquiryConfig;
+  bankInquiryJobs?:InquiryJob[];
+  bankInquiryOperations?:InquiryOperation[];
   users: User[];
   roleConfigs?: RoleDefinitionConfig[];
   companies?: OrganizationCompany[];

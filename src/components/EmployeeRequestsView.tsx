@@ -1,6 +1,16 @@
+import {todayJalali as currentTodayJalali} from '../utils/current-date';
+import {RialInput} from './RialInput';
+import {RequestSummaryHeaders,RequestSummaryRow} from './RequestSummaryTable';
+import {RequestDetailsButton,useRequestDetails} from './RequestDetails';
+import {requestRecordSortFields} from '../utils/request-details';
+import {CardInput} from './CardInput';
+import {IbanInput} from './IbanInput';
+import {currentJalaliMonth} from '../utils/current-date';
+import {JalaliDateInput} from './JalaliDateInput';
 import React, { useState, useEffect, useRef } from 'react';
 import {OfficialReviewNotes} from './OfficialReviewNotes';
-import {cardInputProps,ibanInputProps} from './bank-input';
+import {BankInquirySummary} from './BankInquirySummary';
+import {ibanInputProps} from './bank-input';
 import {bankFieldsError} from '../utils/bank-identifiers';
 import { rejectionDescription } from '../utils/review-rejection';
 import {
@@ -35,9 +45,15 @@ import type {
   AttachmentFile,
   CostCenterItem,
 } from '../types/treasury';
-import { SYSTEM_BANKS, normalizeRolePermissionSet } from '../types/treasury';
+import { normalizeRolePermissionSet } from '../types/treasury';
 import { canEditSubmittedRequest, type EditableRequestRow, type SubmittedEditKind, type SubmittedRequestEdit } from '../utils/request-edit';
 import { SubmittedRequestEditDialog, type SubmittedEditTarget } from './SubmittedRequestEditDialog';
+import {SubmittedRequestDeleteButton} from './SubmittedRequestDeleteButton';
+import {canDeleteSubmittedRequest,type SubmittedRequestDelete} from '../utils/request-deletion';
+import {isMyRevision,openTreasuryCorrection} from '../utils/treasury-correction';
+import type {TreasuryCorrection} from '../types/treasury';
+import {requestTimeFields,type RequestTimeFields} from '../utils/record-time';
+import {RequestTimeHeaders,RequestTimeCells,RequestTimeSummary,RequestTimeHelp} from './RequestTimeColumns';
 import {
   useSortableTable,
   formatRial,
@@ -50,6 +66,7 @@ import {
   formatCardNumber,
   cleanCardNumber,
   detectBankFromCard,
+  DESTINATION_BANKS,
   cleanIban,
 } from '../utils/bankCards';
 import { SortableHeader } from './SortableHeader';
@@ -92,6 +109,7 @@ interface EmployeeRequestsViewProps {
     attachments?: AttachmentFile[];
   }) => Promise<boolean>;
   onResubmitRequest: (payload: {
+    expectedVersion?:number;
     requesterId: string;
     itemType: 'BATCH_ITEM' | 'PAYMENT' | 'ADVANCE';
     requestId: string;
@@ -105,6 +123,7 @@ interface EmployeeRequestsViewProps {
   }) => Promise<boolean>;
   onOpenReceiptModal: (receipt: ReceiptArchive) => void;
   onEditSubmittedRequest: (edit: SubmittedRequestEdit) => Promise<{ok:boolean;error?:string}>;
+  onDeleteSubmittedRequest: (payload: SubmittedRequestDelete) => Promise<{ok:boolean;error?:string}>;
   initialFormTab?: 'PAYMENT_SINGLE' | 'PAYMENT_BATCH' | 'ADVANCE_SINGLE' | 'ADVANCE_BATCH' | 'CARTABLE';
   initialStatusFilter?: string;
 }
@@ -122,14 +141,13 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   onSubmitBatchPayment,
   onResubmitRequest,
   onEditSubmittedRequest,
+  onDeleteSubmittedRequest,
   onOpenReceiptModal,
   initialFormTab = 'PAYMENT_BATCH',
   initialStatusFilter = 'ALL',
 }) => {
   const activeCostCenters = React.useMemo(() => costCenters.filter(cc => cc.isActive !== false), [costCenters]);
-  const todayJalali = new Intl.DateTimeFormat('en-US-u-ca-persian', { year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-  const datePart = (type: string) => todayJalali.find(p => p.type === type)?.value || '';
-  const today = `${datePart('year')}/${datePart('month')}/${datePart('day')}`;
+  const today = currentTodayJalali();
 
   // Mode controlled from right sidebar menu: PAYMENT_SINGLE | PAYMENT_BATCH | ADVANCE_SINGLE | ADVANCE_BATCH | CARTABLE
   const [activeFormTab, setActiveFormTab] = useState<'PAYMENT_SINGLE' | 'PAYMENT_BATCH' | 'ADVANCE_SINGLE' | 'ADVANCE_BATCH' | 'CARTABLE'>(initialFormTab);
@@ -160,7 +178,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   };
 
   // 1. Single Advance Form State
-  const [advRequestedMonth, setAdvRequestedMonth] = useState('');
+  const [advRequestedMonth, setAdvRequestedMonth] = useState(currentJalaliMonth);
   const [advAmount, setAdvAmount] = useState('');
   const [advSuggestedDate, setAdvSuggestedDate] = useState(today);
   const [advReason, setAdvReason] = useState('');
@@ -169,30 +187,31 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   // 2. Single Payment Form State
   const [payDueDate, setPayDueDate] = useState(today);
   const [payPriority, setPayPriority] = useState<Priority>('Normal');
-  const [payCostCenter, setCostCenter] = useState(
-    () => activeCostCenters.find((c) => c.name === currentUser.department)?.name || activeCostCenters[0]?.name || currentUser.department
-  );
+  const [payCostCenter, setCostCenter] = useState('');
   const [payDescription, setPayDescription] = useState('');
   const [payAmount, setPayAmount] = useState('');
   const [payeeName, setPayeeName] = useState('');
   const [payAccountOrCard, setPayAccountOrCard] = useState('');
   const [payIban, setPayIban] = useState('');
-  const [payBankName, setPayBankName] = useState('بانک ملت');
+  const [payBankName, setPayBankName] = useState('');
   const [payInvoiceNumber, setPayInvoiceNumber] = useState('');
   const [payAttachments, setPayAttachments] = useState<AttachmentFile[]>([]);
 
   // 3. Batch Payment Form State
   const [batchTitle, setBatchTitle] = useState('');
-  const emptyBatchRow = (itemType: 'PAYMENT' | 'ADVANCE'): Omit<BatchItem, 'id'> => ({itemType,payeeName:'',amount:0,accountOrCard:'',iban:'',bankName:'بانک ملت',description:'',invoiceNumber:'',costCenter:'',attachments:[]});
-  const [batchRows, setBatchRows] = useState<Array<Omit<BatchItem, 'id'>>>([emptyBatchRow('PAYMENT')]);
+  type DraftBatchRow=Omit<BatchItem,'id'>&{formKey:string};
+  const emptyBatchRow = (itemType: 'PAYMENT' | 'ADVANCE'): DraftBatchRow => ({formKey:crypto.randomUUID(),itemType,payeeName:'',amount:0,accountOrCard:'',iban:'',bankName:'',description:'',invoiceNumber:'',costCenter:'',requestedMonth:itemType==='ADVANCE'?currentJalaliMonth():'',attachments:[]});
+  const [batchRows, setBatchRows] = useState<DraftBatchRow[]>([emptyBatchRow('PAYMENT')]);
   const [batchGlobalAttachments, setBatchGlobalAttachments] = useState<AttachmentFile[]>([]);
 
   // 4. Batch Advance Form State
   const [batchAdvTitle, setBatchAdvTitle] = useState('');
-  const [batchAdvRows, setBatchAdvRows] = useState<Array<Omit<BatchItem, 'id'>>>([emptyBatchRow('ADVANCE')]);
+  const [batchAdvRows, setBatchAdvRows] = useState<DraftBatchRow[]>([emptyBatchRow('ADVANCE')]);
 
   // Resubmit Modal State
   const [resubmitTarget, setResubmitTarget] = useState<{
+    treasuryCorrection?:TreasuryCorrection;
+    expectedVersion?:number;
     itemType: 'BATCH_ITEM' | 'PAYMENT' | 'ADVANCE';
     requestId: string;
     rowId?: string;
@@ -213,10 +232,11 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   const [resubmitAccountOrCard, setResubmitAccountOrCard] = useState('');
   const [resubmitIban, setResubmitIban] = useState('');
   const [resubmitError,setResubmitError]=useState('');
-  const [resubmitBankName, setResubmitBankName] = useState('بانک ملت');
+  const [resubmitBankName, setResubmitBankName] = useState('');
   const [resubmitAttachments, setResubmitAttachments] = useState<AttachmentFile[]>([]);
   const [isResubmitting, setIsResubmitting] = useState(false);
   const [editSubmittedTarget,setEditSubmittedTarget]=useState<SubmittedEditTarget|null>(null);
+  const submittedActions=(target:SubmittedEditTarget,supervisorId:string|null|undefined)=><span className="inline-flex flex-wrap items-center gap-2"><button type="button" onClick={()=>setEditSubmittedTarget(target)} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer"><Edit className="w-3 h-3"/>ویرایش</button>{canDeleteSubmittedRequest(target.row,supervisorId,currentUser.id)&&<SubmittedRequestDeleteButton target={target} requesterId={currentUser.id} onDelete={onDeleteSubmittedRequest}/>}</span>;
   const permissions=normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role);
   const mayEditSubmitted=(row:EditableRequestRow,ownerId:string,supervisorId:string|null,kind:SubmittedEditKind,batchAdvance=false)=>{
     const allowed=kind==='BATCH_ITEM' ? (batchAdvance?permissions.canSubmitBatchAdvance:permissions.canSubmitBatchPayment) : kind==='ADVANCE'?permissions.canSubmitSingleAdvance:permissions.canSubmitSinglePayment;
@@ -322,8 +342,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
       setPayAmount('');
       setPayDueDate(today);
       setPayPriority('Normal');
-      setCostCenter(activeCostCenters.find(c => c.name === currentUser.department)?.name || activeCostCenters[0]?.name || currentUser.department);
-      setPayBankName('بانک ملت');
+      setCostCenter('');
+      setPayBankName('');
       setPayInvoiceNumber('');
       setPayDescription('');
       setPayeeName('');
@@ -348,7 +368,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         requesterId: currentUser.id,
         title: batchTitle,
         batchType: 'PAYMENT',
-        items: batchRows,
+        items: batchRows.map(({formKey,...row})=>row),
         attachments: batchGlobalAttachments,
       });
       if (!registered) return;
@@ -380,7 +400,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
       });
       if (!registered) return;
       uploadGeneration.current++;
-      setAdvRequestedMonth('');
+      setAdvRequestedMonth(currentJalaliMonth());
       setAdvAmount('');
       setAdvSuggestedDate(today);
       setAdvReason('');
@@ -403,7 +423,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         requesterId: currentUser.id,
         title: batchAdvTitle,
         batchType: 'ADVANCE',
-        items: batchAdvRows,
+        items: batchAdvRows.map(({formKey,...row})=>row),
         attachments: [],
       });
       if (!registered) return;
@@ -433,19 +453,23 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
     currentIban: string;
     currentBankName: string;
   }) => {
-    setResubmitTarget(target);
-    setResubmitAmount(String(target.currentAmount));
+    const actual=target.itemType==='BATCH_ITEM'?batchPayments.find(b=>b.id===target.requestId)?.items.find(i=>i.id===target.rowId):target.itemType==='PAYMENT'?paymentRequests.find(p=>p.id===target.requestId):advanceRequests.find(a=>a.id===target.requestId);
+    setResubmitTarget({...target,...(actual&&openTreasuryCorrection(actual)?{treasuryCorrection:actual.treasuryCorrection,expectedVersion:actual.version||1}:{})});
+    setResubmitAmount(String(actual&&openTreasuryCorrection(actual)?actual.approvedAmount??actual.amount:target.currentAmount));
     setResubmitDescription(target.currentDescription);
     setResubmitAccountOrCard(target.currentAccountOrCard);
     setResubmitIban(target.currentIban==='IR'?'':target.currentIban);
     setResubmitError('');
-    setResubmitBankName(target.currentBankName || 'بانک ملت');
+    setResubmitBankName(target.currentBankName || '');
     setResubmitAttachments([]);
   };
 
-  const handleConfirmResubmit = async () => {
+  const handleConfirmResubmit = async (event:React.MouseEvent<HTMLButtonElement>) => {
     if (!resubmitTarget) return;
-    if(resubmitTarget.itemType!=='ADVANCE'){const error=bankFieldsError({accountOrCard:resubmitAccountOrCard,iban:resubmitIban});if(error){setResubmitError(error);return;}}
+    if(resubmitTarget.itemType!=='ADVANCE'){const requireCard=resubmitTarget.itemType==='PAYMENT'||batchPayments.find(b=>b.id===resubmitTarget.requestId)?.batchType!=='ADVANCE';const error=bankFieldsError({accountOrCard:resubmitAccountOrCard,iban:resubmitIban},requireCard);if(error){setResubmitError(error);return;}}
+    const controls=event.currentTarget.closest('[role="dialog"]')?.querySelectorAll<HTMLInputElement>('input[data-form-value]');
+    if(controls&&Array.from(controls).some(input=>!input.reportValidity())){setResubmitError('ورودی نامعتبر را اصلاح کنید؛ اطلاعات قبلی ثبت نشده است.');return;}
+    const amount=Number(resubmitAmount);if(!/^\d+$/.test(resubmitAmount)||!Number.isSafeInteger(amount)||amount<=0){setResubmitError('مبلغ اصلاح‌شده باید عدد صحیح مثبت ریالی باشد.');return;}
     setIsResubmitting(true);
     try {
       const ok = await onResubmitRequest({
@@ -453,11 +477,9 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         itemType: resubmitTarget.itemType,
         requestId: resubmitTarget.requestId,
         rowId: resubmitTarget.rowId,
-        amount: Number(resubmitAmount) || resubmitTarget.currentAmount,
+        ...(resubmitTarget.treasuryCorrection?{expectedVersion:resubmitTarget.expectedVersion}:{amount}),
         description: resubmitDescription,
-        accountOrCard: resubmitAccountOrCard,
-        iban: resubmitIban,
-        bankName: resubmitBankName,
+        ...(resubmitTarget.treasuryCorrection&&resubmitTarget.itemType==='ADVANCE'?{}:{accountOrCard:resubmitAccountOrCard,iban:resubmitIban,bankName:resubmitBankName}),
         newAttachments: resubmitAttachments,
       });
       if (ok) {
@@ -479,9 +501,16 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
     return reqRequesterId === currentUser.id;
   };
 
-  const myBatches = batchPayments.filter((b) => isMyRequest(b.requesterId));
-  const myPayments = paymentRequests.filter((p) => isMyRequest(p.requesterId));
-  const myAdvances = advanceRequests.filter((a) => isMyRequest(a.requesterId));
+  const batchRecords=React.useMemo(()=>batchPayments.filter(b=>isMyRequest(b.requesterId)).map(b=>({...b,...requestTimeFields(b,b.items)})),[batchPayments,currentUser.id,currentUser.role]);
+  const {resolve:resolveDetails}=useRequestDetails();
+  const paymentRecords=React.useMemo(()=>paymentRequests.filter(p=>isMyRequest(p.requesterId)).map(p=>({...p,...requestRecordSortFields(resolveDetails({kind:'PAYMENT',id:p.id}))})),[paymentRequests,currentUser.id,currentUser.role,resolveDetails]);
+  const advanceRecords=React.useMemo(()=>advanceRequests.filter(a=>isMyRequest(a.requesterId)).map(a=>({...a,...requestRecordSortFields(resolveDetails({kind:'ADVANCE',id:a.id}))})),[advanceRequests,currentUser.id,currentUser.role,resolveDetails]);
+  const {sortedItems:myBatches,sortConfig:batchSort,handleSort:sortBatches}=useSortableTable(batchRecords,'registrationOrder','event_time','desc');
+  const {sortedItems:myPayments,sortConfig:paymentSort,handleSort:sortPayments}=useSortableTable(paymentRecords,'registrationOrder','event_time','desc');
+  const {sortedItems:myAdvances,sortConfig:advanceSort,handleSort:sortAdvances}=useSortableTable(advanceRecords,'registrationOrder','event_time','desc');
+  const childRecords=React.useMemo(()=>batchRecords.flatMap(b=>b.items.map((it,idx)=>({...it,requestBatchId:b.id,originalRowIndex:idx,...requestRecordSortFields(resolveDetails({kind:'BATCH_ITEM',id:b.id,rowId:it.id}))}))),[batchRecords,resolveDetails]);
+  const {sortedItems:sortedChildren,sortConfig:childSort,handleSort:sortChildren}=useSortableTable(childRecords,'registrationOrder','event_time','desc');
+  const childrenByBatch=React.useMemo(()=>{const groups=new Map<string,typeof sortedChildren>();for(const row of sortedChildren){const rows=groups.get(row.requestBatchId)||[];rows.push(row);groups.set(row.requestBatchId,rows);}return groups;},[sortedChildren]);
   // Missing batchType is the existing legacy payment-group contract.
   const visibleBatches = myBatches.filter((b) =>
     statusFilter === 'ADVANCE_BATCH' || statusFilter === 'ADVANCE_ALL'
@@ -490,7 +519,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   );
 
   // Extract all rows needing revision
-  const needsRevisionItems: Array<{
+  const needsRevisionItems: Array<RequestTimeFields&{
     itemType: 'BATCH_ITEM' | 'PAYMENT' | 'ADVANCE';
     requestId: string;
     rowId?: string;
@@ -510,10 +539,11 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   }> = [];
 
   // Check batches items
-  myBatches.forEach((b) => {
+  batchPayments.forEach((b) => {
     b.items.forEach((it, idx) => {
-      if (it.status === 'Needs_Revision') {
+      if (isMyRevision(it,b.requesterId,currentUser.id,currentUser.role==='ADMIN')) {
         needsRevisionItems.push({
+          ...requestTimeFields(b,[it]),
           itemType: 'BATCH_ITEM',
           requestId: b.id,
           rowId: it.id,
@@ -536,9 +566,10 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   });
 
   // Check single payments
-  myPayments.forEach((p) => {
-    if (p.status === 'Needs_Revision') {
+  paymentRequests.forEach((p) => {
+    if (isMyRevision(p,p.requesterId,currentUser.id,currentUser.role==='ADMIN')) {
       needsRevisionItems.push({
+        ...requestTimeFields(p),
         itemType: 'PAYMENT',
         requestId: p.id,
         trackingCode: p.trackingCode,
@@ -559,9 +590,10 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   });
 
   // Check single advances
-  myAdvances.forEach((a) => {
-    if (a.status === 'Needs_Revision') {
+  advanceRequests.forEach((a) => {
+    if (isMyRevision(a,a.requesterId,currentUser.id,currentUser.role==='ADMIN')) {
       needsRevisionItems.push({
+        ...requestTimeFields(a),
         itemType: 'ADVANCE',
         requestId: a.id,
         trackingCode: a.trackingCode,
@@ -683,7 +715,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {batchRows.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/60 align-top">
+                    <tr key={row.formKey} className="hover:bg-slate-50/60 align-top">
                       <td className="px-1.5 py-2 text-center font-mono text-slate-500 font-bold">
                         {idx + 1}
                       </td>
@@ -703,8 +735,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <input
-                          type="number"
+                        <RialInput
                           required
                           min={1000}
                           value={row.amount || ''}
@@ -721,10 +752,11 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         </div>
                       </td>
                       <td className="px-2 py-2">
-                        <input
+                        <CardInput
+                          required
                           type="text"
                           dir="ltr"
-                          {...cardInputProps}
+                          
                           value={row.accountOrCard}
                           onChange={(e) => {
                             const formatted = formatCardNumber(e.target.value);
@@ -735,7 +767,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                                   ? {
                                       ...r,
                                       accountOrCard: formatted,
-                                      bankName: detected || r.bankName,
+                                      bankName: detected || '',
                                     }
                                   : r
                               )
@@ -746,7 +778,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <input
+                        <IbanInput
                           type="text"
                           dir="ltr"
                           {...ibanInputProps}
@@ -762,7 +794,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <select
+                        <select aria-label={`بانک مقصد ردیف ${idx+1}`}
                           value={row.bankName}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -772,7 +804,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                           }}
                           className="w-full px-1.5 py-1.5 text-xs bg-white border border-slate-300 rounded"
                         >
-                          {SYSTEM_BANKS.map((b) => (
+                          <option value="">انتخاب بانک (اختیاری)</option>
+                          {DESTINATION_BANKS.map((b) => (
                             <option key={b} value={b}>
                               {b}
                             </option>
@@ -875,12 +908,13 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">شرح و بابت پرداخت:</label>
+              <label htmlFor="single-payment-description" className="block text-xs font-semibold text-slate-700 mb-1">شرح و بابت پرداخت <span className="text-rose-600">*</span>:</label>
               <textarea
+                id="single-payment-description"
                 required
                 rows={2}
                 value={payDescription}
-                onChange={(e) => setPayDescription(e.target.value)}
+                onChange={(e) => {e.target.setCustomValidity(e.target.value.trim()?'':'شرح و بابت پرداخت را وارد کنید.');setPayDescription(e.target.value);}}
                 placeholder="توضیح کامل در مورد علت و تعهد مالی این پرداخت..."
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
               />
@@ -888,14 +922,17 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  مرکز هزینه مرتبط (از فهرست مراکز هزینه فعال سازمان):
+                <label htmlFor="single-payment-cost-center" className="block text-xs font-semibold text-slate-700 mb-1">
+                  مرکز هزینه مرتبط (از فهرست مراکز هزینه فعال سازمان) <span className="text-rose-600">*</span>:
                 </label>
                 <select
+                  id="single-payment-cost-center"
+                  required
                   value={payCostCenter}
                   onChange={(e) => setCostCenter(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
                 >
+                  <option value="">مرکز هزینه را انتخاب کنید</option>
                   {activeCostCenters.map((cc) => (
                     <option key={cc.id} value={cc.name}>
                       {cc.name} — کد: {cc.code} ({cc.companyName})
@@ -907,21 +944,22 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">نام ذینفع / گیرنده وجه:</label>
+                <label htmlFor="single-payment-payee" className="block text-xs font-semibold text-slate-700 mb-1">نام گیرنده (صاحب حساب) <span className="text-rose-600">*</span>:</label>
                 <input
+                  id="single-payment-payee"
                   type="text"
                   required
                   value={payeeName}
-                  onChange={(e) => setPayeeName(e.target.value)}
+                  onChange={(e) => {e.target.setCustomValidity(e.target.value.trim()?'':'نام گیرنده (صاحب حساب) را وارد کنید.');setPayeeName(e.target.value);}}
                   placeholder="مثال: شرکت داده‌پردازی آریا"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">مبلغ پرداختی (ریال):</label>
-                <input
-                  type="number"
+                <label htmlFor="single-payment-amount" className="block text-xs font-semibold text-slate-700 mb-1">مبلغ پرداختی (ریال) <span className="text-rose-600">*</span>:</label>
+                <RialInput
+                  id="single-payment-amount"
                   required
                   min={1000}
                   value={payAmount}
@@ -934,17 +972,19 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">شماره کارت (۱۶ رقمی):</label>
-                <input
+                <label htmlFor="single-payment-card" className="block text-xs font-semibold text-slate-700 mb-1">شماره کارت (۱۶ رقمی) <span className="text-rose-600">*</span>:</label>
+                <CardInput
+                  id="single-payment-card"
+                  required
                   type="text"
                   dir="ltr"
-                  {...cardInputProps}
+                  
                   value={payAccountOrCard}
                   onChange={(e) => {
                     const formatted = formatCardNumber(e.target.value);
                     setPayAccountOrCard(formatted);
                     const detected = detectBankFromCard(formatted);
-                    if (detected) setPayBankName(detected);
+                    setPayBankName(detected || '');
                   }}
                   placeholder="xxxx-xxxx-xxxx-xxxx"
                   className="w-full px-3 py-2 text-xs font-mono text-slate-900 bg-slate-50 border border-slate-300 rounded-lg focus:bg-white text-center tracking-wider"
@@ -953,7 +993,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">شماره شبا (IBAN):</label>
-                <input
+                <IbanInput
                   type="text"
                   dir="ltr"
                   {...ibanInputProps}
@@ -965,13 +1005,14 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">بانک مقصد:</label>
-                <select
+                <label htmlFor="single-payment-bank" className="block text-xs font-semibold text-slate-700 mb-1">بانک مقصد:</label>
+                <select id="single-payment-bank"
                   value={payBankName}
                   onChange={(e) => setPayBankName(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
                 >
-                  {SYSTEM_BANKS.map((b) => (
+                  <option value="">انتخاب بانک (اختیاری)</option>
+                  {DESTINATION_BANKS.map((b) => (
                     <option key={b} value={b}>
                       {b}
                     </option>
@@ -1003,9 +1044,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">موعد نیاز به پرداخت:</label>
-                <input
-                  type="text"
-                  value={payDueDate}
+                <JalaliDateInput
+                  aria-label="موعد نیاز به پرداخت" minDate={today} value={payDueDate}
                   onChange={(e) => setPayDueDate(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
                 />
@@ -1040,6 +1080,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setPayAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                      aria-label={`حذف مدرک ${f.name}`}
                       className="text-rose-500 hover:text-rose-700 p-0.5"
                     >
                       <X className="w-3 h-3" />
@@ -1049,6 +1090,10 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
               </div>
             </div>
 
+            {payAttachments.length===0&&<p role="note" aria-live="polite" className="flex items-start gap-2 p-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg">
+              <AlertCircle aria-hidden="true" className="w-4 h-4 shrink-0"/>
+              <span>مدرکی برای این پرداخت بارگذاری نکرده‌اید. بدون فاکتور، رسید یا مدرک مرتبط، ممکن است درخواست در حسابداری یا خزانه رد شود و پرداخت انجام نشود. ثبت درخواست بدون پیوست همچنان امکان‌پذیر است.</span>
+            </p>}
             <div className="pt-2 text-left">
               <button
                 type="submit"
@@ -1100,9 +1145,9 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
               />
             </div>
 
-            {/* Advance Batch Table - 100% Full Screen with zero horizontal scroll */}
-            <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full table-fixed text-right border-collapse text-xs">
+            {/* Keep desktop density; scroll the table, not the page, on narrow screens. */}
+            <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="w-full min-w-[900px] table-fixed text-right border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-100/80 text-slate-700">
                     <th className="px-1.5 py-2.5 w-[4%] text-center">ردیف</th>
@@ -1111,14 +1156,14 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                     <th className="px-2 py-2.5 w-[16%]">شماره کارت (۱۶ رقمی)</th>
                     <th className="px-2 py-2.5 w-[18%]">شماره شبا (IBAN)</th>
                     <th className="px-2 py-2.5 w-[9%]">ماه مساعده</th>
-                    <th className="px-2 py-2.5 w-[16%]">علت درخواست</th>
+                    <th className="px-2 py-2.5 w-[16%]">علت درخواست (توضیحات)</th>
                     <th className="px-1.5 py-2.5 w-[5%] text-center">مدارک</th>
                     <th className="px-1 py-2.5 w-[4%] text-center">حذف</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {batchAdvRows.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/60 align-top">
+                    <tr key={row.formKey} className="hover:bg-slate-50/60 align-top">
                       <td className="px-1.5 py-2 text-center font-mono text-slate-500 font-bold">
                         {idx + 1}
                       </td>
@@ -1138,8 +1183,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <input
-                          type="number"
+                        <RialInput
                           required
                           min={1000}
                           value={row.amount || ''}
@@ -1156,10 +1200,10 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         </div>
                       </td>
                       <td className="px-2 py-2">
-                        <input
+                        <CardInput
                           type="text"
                           dir="ltr"
-                          {...cardInputProps}
+                          
                           value={row.accountOrCard}
                           onChange={(e) => {
                             const formatted = formatCardNumber(e.target.value);
@@ -1170,7 +1214,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                                   ? {
                                       ...r,
                                       accountOrCard: formatted,
-                                      bankName: detected || r.bankName,
+                                      bankName: detected || '',
                                     }
                                   : r
                               )
@@ -1181,7 +1225,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <input
+                        <IbanInput
                           type="text"
                           dir="ltr"
                           {...ibanInputProps}
@@ -1298,8 +1342,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">مبلغ درخواستی (ریال):</label>
-                <input
-                  type="number"
+                <RialInput
                   required
                   min={1000}
                   value={advAmount}
@@ -1313,9 +1356,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">تاریخ پیشنهادی دریافت:</label>
-                <input
-                  type="text"
-                  value={advSuggestedDate}
+                <JalaliDateInput
+                  aria-label="تاریخ پیشنهادی دریافت" minDate={today} value={advSuggestedDate}
                   onChange={(e) => setAdvSuggestedDate(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
                 />
@@ -1323,7 +1365,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">علت و توضیحات تقاضا:</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">علت درخواست (توضیحات):</label>
               <textarea
                 required
                 rows={2}
@@ -1389,6 +1431,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
       {/* 3. Cartable and History Section — ONLY shown when CARTABLE menu is active */}
       {activeFormTab === 'CARTABLE' && (
         <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+          <RequestTimeHelp/>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
             <div>
               <h3 className="text-base font-bold text-slate-900">
@@ -1429,7 +1472,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                       درخواست‌ها و ردیف‌های نیازمند اصلاح ({needsRevisionItems.length} مورد)
                     </h4>
                     <span className="text-[11px] text-amber-800 mr-auto">
-                      ردیف‌های زیر توسط تاییدکننده یا حسابداری برگشت داده شده‌اند؛ لطفاً بررسی و ارسال مجدد نمایید.
+                      اصلاح‌های ارجاع‌شده به شما از سرپرست، حسابداری یا خزانه؛ مقصد ارسال مجدد در فرم مشخص است.
                     </span>
                   </div>
 
@@ -1452,6 +1495,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                             <strong>علت برگشت ({item.returnedByName ? `${item.returnedByName} - ` : ''}{item.returnedByRole || 'تاییدکننده'}):</strong>{' '}
                             {item.returnedReason || 'لطفاً مستندات و مبلغ بازنگری گردد.'}
                           </div>
+                          <RequestDetailsButton target={{kind:item.itemType,id:item.requestId,rowId:item.rowId}}/><RequestTimeSummary fields={item}/>
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
@@ -1474,6 +1518,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                                 currentBankName: item.bankName,
                               })
                             }
+                            disabled={!permissions.canResubmitRevision}
                             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-lg cursor-pointer whitespace-nowrap"
                           >
                             <RefreshCw className="w-3.5 h-3.5" />
@@ -1508,6 +1553,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
+                <div className="flex flex-wrap gap-2 text-xs"><button type="button" onClick={()=>sortBatches('registrationOrder','event_time')} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-700">ترتیب گروه‌ها: زمان ثبت ({batchSort.key==='registrationOrder'&&batchSort.direction==='asc'?'قدیمی به جدید':'جدید به قدیمی'})</button><button type="button" onClick={()=>sortBatches('treasuryActionOrder','event_time')} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-700">ترتیب گروه‌ها: اقدام خزانه</button></div>
                 {visibleBatches.map((b) => (
                   <div key={b.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
                     <div className="p-3 bg-slate-50/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200">
@@ -1519,7 +1565,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                             {b.batchType === 'ADVANCE' ? 'مساعده گروهی' : 'دستور پرداخت گروهی'}
                           </span>
                         </div>
-                        <OfficialReviewNotes row={b}/>
+                        <RequestDetailsButton target={{kind:'BATCH',id:b.id}}/><OfficialReviewNotes row={b}/>
+                        <RequestTimeSummary record={b} paymentRows={b.items}/>
                         <div className="text-[11px] text-slate-600">
                           تعداد: <strong className="font-mono-num">{b.itemCount}</strong> ردیف · جمع کل:{' '}
                           <strong className="font-mono-num text-slate-950 font-bold">{formatRial(b.totalAmount)} ریال</strong>
@@ -1533,66 +1580,16 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Rows - Full Screen without horizontal scroll */}
-                    <div className="p-2.5 w-full">
-                      <table className="w-full table-auto text-right border-collapse text-xs">
-                        <thead>
-                          <tr className="text-slate-600 bg-slate-50/60">
-                            <th className="px-2 py-1.5 w-8 text-center">#</th>
-                            <th className="px-2.5 py-1.5">ذینفع / نیرو</th>
-                            <th className="px-2.5 py-1.5">مبلغ</th>
-                            <th className="px-2.5 py-1.5">شماره کارت / شبا</th>
-                            <th className="px-2.5 py-1.5">بانک</th>
-                            <th className="px-2.5 py-1.5">وضعیت این ردیف</th>
-                            <th className="px-2.5 py-1.5">مدارک</th>
-                            <th className="px-2.5 py-1.5 text-center">اقدام</th>
-                          </tr>
-                        </thead>
+                    {/* Keep readable numeric columns; scroll only inside the table. */}
+                    <div className="p-2.5 w-full overflow-x-auto">
+                      <table className="request-record-table request-summary-table w-full text-right border-collapse text-xs">
+<thead><RequestSummaryHeaders sortConfig={childSort} onSort={sortChildren}/></thead>
                         <tbody className="divide-y divide-slate-100">
-                          {b.items.map((it, idx) => {
-                            const isReturned = it.status === 'Needs_Revision';
+                          {(childrenByBatch.get(b.id)||[]).map((it) => {
+                            const idx=it.originalRowIndex;
+                            const isReturned = isMyRevision(it,b.requesterId,currentUser.id,currentUser.role==='ADMIN');
                             return (
-                              <tr key={it.id} className={`align-top ${isReturned ? 'bg-amber-50/40 hover:bg-amber-50/60' : 'hover:bg-slate-50/60'}`}>
-                                <td className="px-2 py-2 text-center font-mono text-slate-500">{idx + 1}</td>
-                                <td className="px-2.5 py-2 font-semibold text-slate-900 break-words">{it.payeeName}<OfficialReviewNotes row={it}/></td>
-                                <td className="px-2.5 py-2 font-mono-num font-bold text-slate-950 break-words">
-                                  {formatRial(it.approvedAmount ?? it.amount)} ریال
-                                  {it.approvedAmount && it.approvedAmount !== it.initialAmount && (
-                                    <div className="text-[10px] text-slate-400 line-through">
-                                      اولیه: {formatRial(it.initialAmount)}
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="px-2.5 py-2 font-mono-num text-[11px] text-slate-600 break-all">
-                                  {it.accountOrCard || it.iban || '—'}
-                                </td>
-                                <td className="px-2.5 py-2 text-slate-700 break-words">{it.bankName}</td>
-                                <td className="px-2.5 py-2 break-words">
-                                  <span className={`text-[11px] font-semibold ${getStatusTextClass(it.status || b.status)}`}>
-                                    {getStatusLabel(it.status || b.status)}
-                                  </span>
-                                  {rejectionDescription(it) && <div className="text-[10px] text-rose-800 mt-0.5 break-words">{rejectionDescription(it)}</div>}
-                                  {isReturned && (
-                                    <div className="text-[10px] text-amber-800 mt-0.5 break-words">
-                                      علت: {it.returnedReason}
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="px-2.5 py-2">
-                                  {it.attachments && it.attachments.length > 0 ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => setPreviewAttachment(it.attachments![0])}
-                                      className="inline-flex items-center gap-1 text-[11px] text-sky-700 hover:text-sky-900 cursor-pointer"
-                                    >
-                                      <Paperclip className="w-3 h-3 shrink-0" />
-                                      <span>{it.attachments.length} مدرک</span>
-                                    </button>
-                                  ) : (
-                                    <span className="text-slate-400">—</span>
-                                  )}
-                                </td>
-                                <td className="px-2.5 py-2 text-center">
+                              <RequestSummaryRow key={it.id} target={{kind:'BATCH_ITEM',id:b.id,rowId:it.id}} index={idx+1} >
                                   {isReturned ? (
                                     <button
                                       type="button"
@@ -1618,12 +1615,11 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                                       اصلاح
                                     </button>
                                   ) : mayEditSubmitted(it,b.requesterId,b.supervisorId,'BATCH_ITEM',b.batchType==='ADVANCE') ? (
-                                    <button type="button" onClick={()=>setEditSubmittedTarget({itemType:'BATCH_ITEM',requestId:b.id,rowId:it.id,trackingCode:`${b.trackingCode} — ردیف ${idx+1}`,row:it})} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer"><Edit className="w-3 h-3"/>ویرایش</button>
+                                    submittedActions({itemType:'BATCH_ITEM',requestId:b.id,rowId:it.id,trackingCode:`${b.trackingCode} — ردیف ${idx+1}`,row:it},b.supervisorId)
                                   ) : (
                                     <span className="text-slate-400 text-[11px]">عادی</span>
                                   )}
-                                </td>
-                              </tr>
+                                </RequestSummaryRow>
                             );
                           })}
                         </tbody>
@@ -1649,64 +1645,15 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 دستور پرداختی ثبت نشده است.
               </div>
             ) : (
-              <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full table-auto text-right border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-100/80 text-slate-700">
-                      <th className="px-2.5 py-2.5">کد رهگیری</th>
-                      <th className="px-2.5 py-2.5">ذینفع و شرح</th>
-                      <th className="px-2.5 py-2.5">مبلغ (ریال)</th>
-                      <th className="px-2.5 py-2.5">بانک و کارت/شبا</th>
-                      <th className="px-2.5 py-2.5">وضعیت</th>
-                      <th className="px-2.5 py-2.5">فیش بانکی</th>
-                      <th className="px-2.5 py-2.5 text-center">اقدام</th>
-                    </tr>
-                  </thead>
+              <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+                <table className="request-record-table request-summary-table w-full text-right border-collapse text-xs">
+<thead><RequestSummaryHeaders sortConfig={paymentSort} onSort={sortPayments}/></thead>
                   <tbody className="divide-y divide-slate-200">
-                    {myPayments.map((p) => {
+                    {myPayments.map((p,rowIndex) => {
                       const receipt = findReceiptForRequest(p.id);
-                      const isReturned = p.status === 'Needs_Revision';
+                      const isReturned = isMyRevision(p,p.requesterId,currentUser.id,currentUser.role==='ADMIN');
                       return (
-                        <tr key={p.id} className={`align-top ${isReturned ? 'bg-amber-50/50' : 'hover:bg-slate-50/60'}`}>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-900 break-words">{p.trackingCode}</td>
-                          <td className="px-2.5 py-2.5 font-medium text-slate-900 break-words">
-                            <div className="font-bold">{p.payeeName}</div>
-                            <div className="text-[11px] text-slate-500 break-words">{p.description}</div>
-                            <OfficialReviewNotes row={p}/>
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-950 break-words">
-                            {formatRial(p.amount)}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                            <div>{p.bankName}</div>
-                            {p.accountOrCard && (
-                              <div className="text-[11px] font-mono-num text-slate-500 break-all">{p.accountOrCard}</div>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5 break-words">
-                            <span className={getStatusTextClass(p.status)}>{getStatusLabel(p.status)}</span>
-                            {rejectionDescription(p) && <div className="text-[10px] text-rose-800 mt-0.5 break-words">{rejectionDescription(p)}</div>}
-                            {isReturned && (
-                              <div className="text-[10px] text-amber-800 mt-0.5 break-words">
-                                علت: {p.returnedReason}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5">
-                            {receipt ? (
-                              <button
-                                type="button"
-                                onClick={() => onOpenReceiptModal(receipt)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                <span>فیش</span>
-                              </button>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-center">
+                        <RequestSummaryRow key={p.id} target={{kind:'PAYMENT',id:p.id}} index={rowIndex+1} >
                             {isReturned ? (
                               <button
                                 type="button"
@@ -1731,12 +1678,11 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                                 اصلاح و ارسال
                               </button>
                             ) : mayEditSubmitted(p,p.requesterId,p.supervisorId,'PAYMENT') ? (
-                              <button type="button" onClick={()=>setEditSubmittedTarget({itemType:'PAYMENT',requestId:p.id,trackingCode:p.trackingCode,row:p})} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer"><Edit className="w-3 h-3"/>ویرایش</button>
+                              submittedActions({itemType:'PAYMENT',requestId:p.id,trackingCode:p.trackingCode,row:p},p.supervisorId)
                             ) : (
                               <span className="text-slate-400 text-xs">—</span>
                             )}
-                          </td>
-                        </tr>
+                          </RequestSummaryRow>
                       );
                     })}
                   </tbody>
@@ -1759,57 +1705,15 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 درخواست مساعده‌ای ثبت نشده است.
               </div>
             ) : (
-              <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full table-auto text-right border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-100/80 text-slate-700">
-                      <th className="px-2.5 py-2.5">کد رهگیری</th>
-                      <th className="px-2.5 py-2.5">ماه</th>
-                      <th className="px-2.5 py-2.5">مبلغ درخواستی</th>
-                      <th className="px-2.5 py-2.5">مبلغ مصوب</th>
-                      <th className="px-2.5 py-2.5">علت</th>
-                      <th className="px-2.5 py-2.5">وضعیت</th>
-                      <th className="px-2.5 py-2.5">فیش بانکی</th>
-                      <th className="px-2.5 py-2.5 text-center">اقدام</th>
-                    </tr>
-                  </thead>
+              <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+                <table className="request-record-table request-summary-table w-full text-right border-collapse text-xs">
+<thead><RequestSummaryHeaders sortConfig={advanceSort} onSort={sortAdvances}/></thead>
                   <tbody className="divide-y divide-slate-200">
-                    {myAdvances.map((adv) => {
+                    {myAdvances.map((adv,rowIndex) => {
                       const receipt = findReceiptForRequest(adv.id);
-                      const isReturned = adv.status === 'Needs_Revision';
+                      const isReturned = isMyRevision(adv,adv.requesterId,currentUser.id,currentUser.role==='ADMIN');
                       return (
-                        <tr key={adv.id} className={`align-top ${isReturned ? 'bg-amber-50/50' : 'hover:bg-slate-50/60'}`}>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-900 break-words">{adv.trackingCode}</td>
-                          <td className="px-2.5 py-2.5 text-slate-800 break-words">{adv.requestedMonth}</td>
-                          <td className="px-2.5 py-2.5 font-mono-num text-slate-700 break-words">{formatRial(adv.amount)}</td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-950 break-words">
-                            {adv.approvedAmount ? formatRial(adv.approvedAmount) : '—'}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-600 break-words">{adv.reason}<OfficialReviewNotes row={adv}/></td>
-                          <td className="px-2.5 py-2.5 break-words">
-                            <span className={getStatusTextClass(adv.status)}>{getStatusLabel(adv.status)}</span>
-                            {rejectionDescription(adv) && <div className="text-[10px] text-rose-800 mt-0.5 break-words">{rejectionDescription(adv)}</div>}
-                            {isReturned && (
-                              <div className="text-[10px] text-amber-800 mt-0.5 break-words">
-                                علت: {adv.returnedReason}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5">
-                            {receipt ? (
-                              <button
-                                type="button"
-                                onClick={() => onOpenReceiptModal(receipt)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                <span>فیش</span>
-                              </button>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-center">
+                        <RequestSummaryRow key={adv.id} target={{kind:'ADVANCE',id:adv.id}} index={rowIndex+1} >
                             {isReturned ? (
                               <button
                                 type="button"
@@ -1834,12 +1738,11 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                                 اصلاح و ارسال
                               </button>
                             ) : mayEditSubmitted(adv,adv.requesterId,adv.supervisorId,'ADVANCE') ? (
-                              <button type="button" onClick={()=>setEditSubmittedTarget({itemType:'ADVANCE',requestId:adv.id,trackingCode:adv.trackingCode,row:adv})} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer"><Edit className="w-3 h-3"/>ویرایش</button>
+                              submittedActions({itemType:'ADVANCE',requestId:adv.id,trackingCode:adv.trackingCode,row:adv},adv.supervisorId)
                             ) : (
                               <span className="text-slate-400 text-xs">—</span>
                             )}
-                          </td>
-                        </tr>
+                          </RequestSummaryRow>
                       );
                     })}
                   </tbody>
@@ -1863,7 +1766,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">
-                  ویرایش و ارسال مجدد به صف تایید ({resubmitTarget.trackingCode})
+                  {resubmitTarget.treasuryCorrection?'اصلاح فنی و ارسال مستقیم به خزانه':'ویرایش و ارسال مجدد به صف تایید'} ({resubmitTarget.trackingCode})
                 </h3>
                 <p className="text-xs text-slate-500">{resubmitTarget.title}</p>
               </div>
@@ -1888,12 +1791,14 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
             </div>
 
             <div className="space-y-3">
+              {resubmitTarget.treasuryCorrection&&<p className="text-xs text-amber-950 bg-amber-50 border border-amber-300 rounded-lg p-2">فقط مشخصات فنی؛ مبلغ، صاحب حساب، مرکز هزینه و تأییدها تغییر نمی‌کنند. پس از اصلاح مستقیم به {resubmitTarget.treasuryCorrection.byName} در خزانه ارسال می‌شود.</p>}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  مبلغ اصلاح‌شده (ریال):
+                  {resubmitTarget.treasuryCorrection?'مبلغ مصوب (بدون تغییر) — ریال:':'مبلغ اصلاح‌شده (ریال):'}
                 </label>
-                <input
-                  type="number"
+                <RialInput
+                  readOnly={!!resubmitTarget.treasuryCorrection}
+                  required min={1}
                   value={resubmitAmount}
                   onChange={(e) => setResubmitAmount(e.target.value)}
                   className="w-full px-3 py-2 text-xs font-mono-num font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg"
@@ -1907,35 +1812,37 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
               {resubmitTarget.itemType !== 'ADVANCE' && (
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">شماره شبا (IR و۲۴ رقم):
-                    <input type="text" dir="ltr" {...ibanInputProps} value={resubmitIban} onChange={e=>setResubmitIban(cleanIban(e.target.value))} className="w-full px-2 py-1.5 text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg"/>
+                    <IbanInput value={resubmitIban} onChange={e=>setResubmitIban(cleanIban(e.target.value))} className="w-full px-2 py-1.5 text-xs font-mono bg-slate-50 border border-slate-300 rounded-lg"/>
                   </label>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       شماره کارت ۱۶ رقمی:
                     </label>
-                    <input
+                    <CardInput
+                      required={resubmitTarget.itemType==='PAYMENT'||batchPayments.find(b=>b.id===resubmitTarget.requestId)?.batchType!=='ADVANCE'}
                       type="text"
                       dir="ltr"
-                      {...cardInputProps}
+                      
                       value={resubmitAccountOrCard}
                       onChange={(e) => {
                         const formatted = formatCardNumber(e.target.value);
                         setResubmitAccountOrCard(formatted);
                         const det = detectBankFromCard(formatted);
-                        if (det) setResubmitBankName(det);
+                        setResubmitBankName(det || '');
                       }}
                       className="w-full px-2 py-1.5 text-xs font-mono text-center bg-slate-50 border border-slate-300 rounded-lg"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">بانک مقصد:</label>
-                    <select
+                    <label htmlFor="resubmit-bank" className="block text-xs font-semibold text-slate-700 mb-1">بانک مقصد:</label>
+                    <select id="resubmit-bank"
                       value={resubmitBankName}
                       onChange={(e) => setResubmitBankName(e.target.value)}
                       className="w-full px-2 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg"
                     >
-                      {SYSTEM_BANKS.map((b) => (
+                      <option value="">انتخاب بانک (اختیاری)</option>
+                      {DESTINATION_BANKS.map((b) => (
                         <option key={b} value={b}>
                           {b}
                         </option>
@@ -1947,7 +1854,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  توضیحات و پاسخ به تاییدکننده:
+                  {resubmitTarget.treasuryCorrection?'توضیحات فنی و پاسخ به خزانه:':'توضیحات و پاسخ به تاییدکننده:'}
                 </label>
                 <textarea
                   rows={2}
@@ -1968,6 +1875,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                     <span>انتخاب فاکتور یا مدرک تکمیلی</span>
                     <input
                       type="file"
+                      disabled={!permissions.canViewAttachments}
                       multiple
                       accept="image/*,.pdf"
                       onChange={async (e) => {
@@ -2026,7 +1934,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg cursor-pointer disabled:opacity-50"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>ارسال مجدد به کارتابل تأیید</span>
+                <span>{resubmitTarget.treasuryCorrection?'ارسال مستقیم به خزانه':'ارسال مجدد به کارتابل تأیید'}</span>
               </button>
             </div>
           </div>

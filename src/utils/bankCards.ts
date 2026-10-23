@@ -4,23 +4,31 @@
  */
 
 import {normalizeCard,normalizeIban} from './bank-identifiers';
+import {SYSTEM_BANKS} from '../types/treasury';
 export interface BankCardPrefix {
   prefix: string;
   bankName: string;
 }
 
+// Issuer BIN catalogue, not live card/ownership validation or a bank-license register.
+// Source: alibaba-aero/griphook banks.json @8f2b2543b62f9ee08b23404e0683313a53bc4d56.
+// Historical issuers are labelled explicitly; no existing records are renamed.
 export const IRANIAN_BANK_PREFIXES: BankCardPrefix[] = [
   { prefix: '603799', bankName: 'بانک ملی ایران' },
   { prefix: '170019', bankName: 'بانک ملی ایران' },
+  { prefix: '589905', bankName: 'بانک ملی ایران' },
   { prefix: '610433', bankName: 'بانک ملت' },
   { prefix: '991975', bankName: 'بانک ملت' },
-  { prefix: '627381', bankName: 'بانک تجارت' },
+  { prefix: '585983', bankName: 'بانک تجارت' },
+  { prefix: '627353', bankName: 'بانک تجارت' },
+  { prefix: '627381', bankName: 'بانک انصار (پیش‌شماره قدیمی)' },
   { prefix: '502229', bankName: 'بانک پاسارگاد' },
   { prefix: '639347', bankName: 'بانک پاسارگاد' },
   { prefix: '621986', bankName: 'بانک سامان' },
-  { prefix: '603769', bankName: 'بانک صادرات ایران' },
+  { prefix: '603769', bankName: 'بانک صادرات' },
   { prefix: '589210', bankName: 'بانک سپه' },
   { prefix: '627412', bankName: 'بانک اقتصاد نوین' },
+  { prefix: '627884', bankName: 'بانک اقتصاد نوین' },
   { prefix: '622106', bankName: 'بانک پارسیان' },
   { prefix: '639194', bankName: 'بانک پارسیان' },
   { prefix: '603770', bankName: 'بانک کشاورزی' },
@@ -35,10 +43,29 @@ export const IRANIAN_BANK_PREFIXES: BankCardPrefix[] = [
   { prefix: '639346', bankName: 'بانک سینا' },
   { prefix: '502938', bankName: 'بانک دی' },
   { prefix: '627488', bankName: 'بانک کارآفرین' },
+  { prefix: '502910', bankName: 'بانک کارآفرین' },
   { prefix: '639607', bankName: 'بانک سرمایه' },
   { prefix: '627760', bankName: 'پست بانک ایران' },
   { prefix: '502908', bankName: 'بانک توسعه تعاون' },
+  { prefix: '627648', bankName: 'بانک توسعه صادرات ایران' },
+  { prefix: '207177', bankName: 'بانک توسعه صادرات ایران' },
+  { prefix: '627961', bankName: 'بانک صنعت و معدن' },
+  { prefix: '505416', bankName: 'بانک گردشگری' },
+  { prefix: '505785', bankName: 'بانک ایران زمین' },
+  { prefix: '505809', bankName: 'بانک خاورمیانه' },
+  { prefix: '636795', bankName: 'بانک مرکزی' },
+  { prefix: '606256', bankName: 'مؤسسه اعتباری ملل' },
+  { prefix: '639599', bankName: 'بانک قوامین (پیش‌شماره قدیمی)' },
+  { prefix: '636949', bankName: 'بانک حکمت ایرانیان (پیش‌شماره قدیمی)' },
+  { prefix: '505801', bankName: 'مؤسسه کوثر (پیش‌شماره قدیمی)' },
+  { prefix: '639370', bankName: 'بانک مهر اقتصاد (پیش‌شماره قدیمی)' },
+  { prefix: '507677', bankName: 'مؤسسه نور (پیش‌شماره قدیمی)' },
+  { prefix: '628157', bankName: 'مؤسسه اعتباری توسعه (پیش‌شماره قدیمی)' },
 ];
+
+// Destination forms must actually offer every detected label, without changing
+// the separate bank-account/source-account catalogue or historical stored names.
+export const DESTINATION_BANKS: string[]=[...new Set<string>([...SYSTEM_BANKS,...IRANIAN_BANK_PREFIXES.map(b=>b.bankName)])];
 
 /**
  * Strips all non-digit characters from a card number

@@ -11,6 +11,8 @@ import type {
   PaymentExecutionRecord,
 } from '../types/treasury';
 import { getStatusLabel, getPriorityLabel } from './sorting';
+import {requestTimeFields,type RequestTimeFields} from './record-time';
+import {inquiryReportFields} from './bank-inquiry';
 
 // Excel rounds numeric cells after 15 significant digits. Keep larger integer
 // rials as explicit text; ordinary bank/report amounts retain numeric cells.
@@ -19,7 +21,10 @@ function excelRial(value:number|bigint):number|string {
   const exact=BigInt(value);return exact>999999999999999n?String(exact):Number(exact);
 }
 
-export interface UnifiedTreasuryItem {
+export interface UnifiedTreasuryItem extends Partial<RequestTimeFields> {
+  completedEntry?:{executionId?:string;rowId?:string;approvedAmount:number;index:number;count:number;legacy?:boolean;issue?:string};
+  paymentExecution?:PaymentExecutionRecord;
+  createdAtIso?:string;
   uid: string;
   id: string;
   type: 'ADVANCE' | 'PAYMENT' | 'BATCH' | 'MANUAL';
@@ -80,20 +85,24 @@ export interface UnifiedTreasuryItem {
  * for the selected treasury items.
  * Preserves leading zeros on card numbers, account numbers, IBANs, invoice numbers, and personnel codes.
  */
-export function exportTreasuryItemsToExcel(
+export function buildTreasuryExportWorkbook(
   items: UnifiedTreasuryItem[],
   options?: {
     fileNamePrefix?: string;
     sheetTitle?: string;
     filterBatchItemStatus?: RequestStatus[];
   }
-): { rowCount: number; totalAmount: number|bigint; fileName: string } {
-  const detailRows: Record<string, string | number>[] = [];
+){
+  const completed=items.some(i=>i.completedEntry);
+  if(completed&&items.some(i=>!i.completedEntry))throw Error('گزارش پرداخت ثبت‌شده با صف پرداخت ترکیب نمی‌شود.');
+  if(items.some(i=>i.completedEntry?.issue))throw Error('تاریخچه پرداخت ناسازگار است؛ پیش از خروجی، نیاز به بررسی دارد.');
+  if(completed&&new Set(items.map(i=>i.uid)).size!==items.length)throw Error('نوبت پرداخت تکراری در گزارش پذیرفته نیست.');
+  let detailRows: Record<string, string | number>[] = [];
   let rowIndex = 1;
   let totalExportedAmount = 0n;
 
   for (const item of items) {
-    if (item.type === 'BATCH' && item.rawBatch && item.batchItems && item.batchItems.length > 0) {
+    if (!completed && item.type === 'BATCH' && item.rawBatch && item.batchItems && item.batchItems.length > 0) {
       const batch = item.rawBatch;
       const relevantSubItems =
         options?.filterBatchItemStatus && options.filterBatchItemStatus.length > 0
@@ -136,7 +145,7 @@ export function exportTreasuryItemsToExcel(
           'توضیحات سرپرست': String(sub.approverNote || batch.approverNote || '-'),
           'کارشناس حسابداری': 'واحد حسابداری',
           'توضیحات حسابداری': String(sub.accountingNote || batch.accountingNote || '-'),
-          'تاریخ ثبت درخواست': String(batch.createdAt || ''),
+          'تاریخ ثبت درخواست': requestTimeFields(batch,[sub]).registrationDate,
           'وضعیت فعلی': getStatusLabel((sub.status || batch.status) as RequestStatus),
           'زمان انتقال به مخزن در حال پرداخت': String(sub.inPaymentAt || batch.inPaymentAt || '-'),
           'بانک مبدأ پرداخت‌کننده (خزانه)': String(subSnap?.bankName || sub.paidBankName || batch.paidBankName || '-'),
@@ -145,16 +154,20 @@ export function exportTreasuryItemsToExcel(
           'شماره پیگیری / مرجع بانکی': String(item.bankRefNumber || '-'),
           'تاریخ انجام پرداخت': String(sub.paidDateJalali || batch.paidDateJalali || '-'),
           'مسئول اجرای پرداخت': String(item.treasuryName || '-'),
+          'ساعت ثبت درخواست': requestTimeFields(batch,[sub]).registrationTime,
+          'تاریخ اقدام خزانه': requestTimeFields(batch,[sub]).treasuryActionDate,
+          'ساعت اقدام خزانه': requestTimeFields(batch,[sub]).treasuryActionTime,
+          ...inquiryReportFields(sub),
         });
       }
     } else {
       excelRial(item.amount);totalExportedAmount += BigInt(item.amount);
-      const snap = item.sourceAccountSnapshot || item.receiptObj?.sourceAccountSnapshot || null;
+      const snap = item.sourceAccountSnapshot || (!completed?item.receiptObj?.sourceAccountSnapshot:null) || null;
 
       detailRows.push({
         'ردیف': rowIndex++,
         'کد رهگیری سند': String(item.trackingCode || ''),
-        'شناسه ردیف تجمیعی': '-',
+        'شناسه ردیف تجمیعی': item.completedEntry?.rowId||'-',
         'نوع درخواست': String(item.typeLabel || ''),
         'عنوان / موضوع فرم': String(item.title || item.description || ''),
         'نام ذینفع / گیرنده وجه': String(item.payeeName || ''),
@@ -178,7 +191,7 @@ export function exportTreasuryItemsToExcel(
         'توضیحات سرپرست': String(item.approverNote || '-'),
         'کارشناس حسابداری': String(item.accountingName || '-'),
         'توضیحات حسابداری': String(item.accountingNote || '-'),
-        'تاریخ ثبت درخواست': String(item.createdAt || ''),
+        'تاریخ ثبت درخواست': String(item.registrationDate || item.createdAt || 'ثبت نشده'),
         'وضعیت فعلی': getStatusLabel(item.status),
         'زمان انتقال به مخزن در حال پرداخت': String(item.inPaymentAt || '-'),
         'بانک مبدأ پرداخت‌کننده (خزانه)': String(snap?.bankName || item.paidBankName || '-'),
@@ -187,10 +200,19 @@ export function exportTreasuryItemsToExcel(
         'شماره پیگیری / مرجع بانکی': String(item.bankRefNumber || '-'),
         'تاریخ انجام پرداخت': String(item.paidDateJalali || '-'),
         'مسئول اجرای پرداخت': String(item.treasuryName || '-'),
+        'ساعت ثبت درخواست': String(item.registrationTime || requestTimeFields(item).registrationTime),
+        'تاریخ اقدام خزانه': String(item.treasuryActionDate || requestTimeFields(item).treasuryActionDate),
+        'ساعت اقدام خزانه': String(item.treasuryActionTime || requestTimeFields(item).treasuryActionTime),
+        ...inquiryReportFields(item.completedEntry?.rowId?item.batchItems?.[0]:item.rawPayment||item.rawAdvance),
+        ...(completed?{'شناسه نوبت پرداخت':item.completedEntry?.executionId||'-','نوبت پرداخت':item.completedEntry?.legacy?'سابقه قدیمی؛ تفکیک نوبت ثبت نشده':`${item.completedEntry?.index} از ${item.completedEntry?.count}`,'مبلغ کل مصوب درخواست / ردیف (ریال)':excelRial(item.completedEntry!.approvedAmount),'روش پرداخت':item.paymentExecution?.paymentMethod||item.receiptObj?.paymentMethod||'-','شناسه فیش همین نوبت':item.receiptObj?.id||'-'}:{}),
       });
     }
   }
 
+  // Original request metadata repeats on each execution; it is not additive.
+  const uniqueOriginals=new Map(items.map(i=>[JSON.stringify([i.type,i.id,i.completedEntry?.rowId]),i]));
+  const initialTotal=completed?[...uniqueOriginals.values()].reduce((sum,i)=>sum+BigInt(excelRial(i.initialAmount)),0n):detailRows.reduce((sum,r)=>sum+BigInt(r['مبلغ اولیه درخواستی (ریال)']||0),0n);
+  if(completed)detailRows=detailRows.map(row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[key==='مبلغ قابل پرداخت مصوب (ریال)'?'مبلغ پرداخت این نوبت (ریال)':key,value])));
   // Summary row at the bottom of the detail sheet
   detailRows.push({
     'ردیف': '',
@@ -201,11 +223,9 @@ export function exportTreasuryItemsToExcel(
     'نام ذینفع / گیرنده وجه': '',
     'واحد سازمانی': '',
     'مرکز هزینه': '',
-    'مبلغ اولیه درخواستی (ریال)': excelRial(detailRows.reduce(
-      (acc, r) => acc + BigInt(r['مبلغ اولیه درخواستی (ریال)'] || 0),
-      0n
-    )),
-    'مبلغ قابل پرداخت مصوب (ریال)': excelRial(totalExportedAmount),
+    'مبلغ اولیه درخواستی (ریال)': excelRial(initialTotal),
+    [completed?'مبلغ پرداخت این نوبت (ریال)':'مبلغ قابل پرداخت مصوب (ریال)']: excelRial(totalExportedAmount),
+    ...(completed?{'مبلغ کل مصوب درخواست / ردیف (ریال)':excelRial([...uniqueOriginals.values()].reduce((sum,i)=>sum+BigInt(excelRial(i.completedEntry!.approvedAmount)),0n))}:{}),
     'واحد پول': 'ریال',
     'نام بانک مقصد': '',
     'شماره کارت / شماره حساب مقصد': '',
@@ -223,6 +243,9 @@ export function exportTreasuryItemsToExcel(
     'کارشناس حسابداری': '',
     'توضیحات حسابداری': '',
     'تاریخ ثبت درخواست': '',
+    'ساعت ثبت درخواست': '',
+    'تاریخ اقدام خزانه': '',
+    'ساعت اقدام خزانه': '',
     'وضعیت فعلی': '',
     'زمان انتقال به مخزن در حال پرداخت': '',
     'بانک مبدأ پرداخت‌کننده (خزانه)': '',
@@ -273,6 +296,8 @@ export function exportTreasuryItemsToExcel(
   ];
 
   // Configure RTL view for the sheet
+  const headers=Object.keys(detailRows[0]||{});for(const name of ['تاریخ ثبت درخواست','ساعت ثبت درخواست','تاریخ اقدام خزانه','ساعت اقدام خزانه']){const index=headers.indexOf(name);if(index>=0)worksheet['!cols']![index]={wch:22};}
+  for(const name of Object.keys(inquiryReportFields(undefined))){const index=headers.indexOf(name);if(index>=0)worksheet['!cols']![index]={wch:30};}
   if (!worksheet['!views']) worksheet['!views'] = [];
   worksheet['!views'].push({ rightToLeft: true });
 
@@ -286,13 +311,16 @@ export function exportTreasuryItemsToExcel(
   const prefix = options?.fileNamePrefix || 'treasury-payment-export';
   const fileName = `${prefix}-${timestamp}.xlsx`;
 
-  XLSX.writeFile(workbook, fileName);
-
   return {
+    workbook,
     rowCount: detailRows.length - 1,
     totalAmount: totalExportedAmount<=BigInt(Number.MAX_SAFE_INTEGER)?Number(totalExportedAmount):totalExportedAmount,
     fileName,
   };
+}
+
+export function exportTreasuryItemsToExcel(items:UnifiedTreasuryItem[],options?:Parameters<typeof buildTreasuryExportWorkbook>[1]){
+ const {workbook,...result}=buildTreasuryExportWorkbook(items,options);XLSX.writeFile(workbook,result.fileName);return result;
 }
 
 /**
@@ -480,7 +508,7 @@ export function buildUnifiedTreasuryItems(
         uid: `PAY:${p.id}`,
         id: p.id,
         type: 'PAYMENT',
-        typeLabel: 'دستور پرداخت تکی',
+        typeLabel: p.externalOrder?'دستور خارج سامانه':'دستور پرداخت تکی',
         trackingCode: p.trackingCode,
         title: p.description,
         payeeName: p.payeeName,
@@ -490,7 +518,7 @@ export function buildUnifiedTreasuryItems(
         company: p.company || 'هلدینگ مرکزی آریا',
         costCenter: p.costCenter,
         departmentOrCenter: `${p.department} / ${p.costCenter}`,
-        description: p.description,
+        description: p.externalOrder?`${p.description}\nدستوردهنده خارج سامانه: ${p.externalOrder.orderedBy}`:p.description,
         initialAmount: p.initialAmount ?? p.amount,
         amount: totalApproved,
         paidAmountSoFar: paidSoFar,
@@ -544,7 +572,7 @@ export function buildUnifiedTreasuryItems(
         typeLabel: 'مساعده حقوق پرسنل',
         trackingCode: a.trackingCode,
         title: `مساعده ${a.requestedMonth} — ${a.requesterName}`,
-        payeeName: a.requesterName,
+        payeeName: a.bankPayeeName||a.requesterName,
         requesterName: a.requesterName,
         requesterPersonnelCode: a.requesterPersonnelCode,
         department: a.department,
@@ -566,10 +594,10 @@ export function buildUnifiedTreasuryItems(
             : a.hasPreviousAdvance === false
             ? 'ندارد'
             : 'بررسی نشده',
-        destinationBank: 'حساب حقوق پرسنل',
-        accountOrCard: `حساب حقوق (${a.requesterPersonnelCode})`,
-        iban: `کد پرسنلی ${a.requesterPersonnelCode}`,
-        ibanOrCode: `کد پرسنلی ${a.requesterPersonnelCode}`,
+        destinationBank: a.bankName||'حساب حقوق پرسنل',
+        accountOrCard: a.accountOrCard||`حساب حقوق (${a.requesterPersonnelCode})`,
+        iban: a.iban||`کد پرسنلی ${a.requesterPersonnelCode}`,
+        ibanOrCode: a.iban||`کد پرسنلی ${a.requesterPersonnelCode}`,
         invoiceNumber: '-',
         supervisorName: a.supervisorName || '-',
         approverNote: a.approverNote || '-',
@@ -646,5 +674,10 @@ export function buildUnifiedTreasuryItems(
       })
     : [];
 
-  return [...batches, ...pays, ...advs, ...manuals];
+  return [...batches, ...pays, ...advs, ...manuals].map(item=>{
+    const raw=item.rawBatch||item.rawPayment||item.rawAdvance||item.rawManual;
+    const creation={createdAt:raw?.createdAt,createdAtIso:raw?.createdAtIso,createdAtIsValueDate:item.type==='MANUAL'};
+    const payments=item.type==='BATCH'?item.batchItems||[]:item.type==='MANUAL'?[{status:'Paid',paidAt:item.rawManual?.createdAtIso}]:item.rawPayment?[item.rawPayment]:item.rawAdvance?[item.rawAdvance]:[];
+    return {...item,createdAtIso:raw?.createdAtIso,...requestTimeFields(creation,payments)};
+  });
 }

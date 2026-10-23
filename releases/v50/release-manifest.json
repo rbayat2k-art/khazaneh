@@ -1,0 +1,629 @@
+{
+  "createdAt": "2026-10-23T19:48:52.727Z",
+  "nodeTarget": 22,
+  "source": "C:/Users/reza/Desktop/khazaneh",
+  "builder": "installed rolldown",
+  "storage": "explicit JSON or SQLite; exclusive single writer; no automatic migration",
+  "sourceFiles": [
+    {
+      "path": "index.html",
+      "sha256": "4342855ba74265a107d7427aecaeaf1e34c6dd9ed98d06a89c71268918581f26"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "836346c6b8a1c848e6400da72e631e90f1ba6b136b87b1b33ab9ea0862bca9cb"
+    },
+    {
+      "path": "package.json",
+      "sha256": "1b1166bb3f57cf139f05580213907790c1a821d47c289115de8dc28688bbf834"
+    },
+    {
+      "path": "server.ts",
+      "sha256": "4840b4f731c561a54625d559056725b759dace6dcda349fb25713b0fa9362fec"
+    },
+    {
+      "path": "src/App.tsx",
+      "sha256": "27ae31243f4615b56ca05b67dcca09cf4656b6908a7816412a58cc6d4d36db02"
+    },
+    {
+      "path": "src/components/AdminMasterDataAndSmsSection.tsx",
+      "sha256": "fc2642416ef7eab7d20c809b2b6a0fb76ad46214a10641b793a65478c48bc84c"
+    },
+    {
+      "path": "src/components/AdminPortalView.tsx",
+      "sha256": "d63f7b3b4b693f97f6a54b9bcb2940c08e2f0a97afd6a47d7e0d3b0465c33122"
+    },
+    {
+      "path": "src/components/ApprovalsWorkspaceView.tsx",
+      "sha256": "d9a2d47e38f8f84b2ddc62cd743939e6fed9d25824090ed8d2c2a324d8702ca7"
+    },
+    {
+      "path": "src/components/BankAccountImportDialog.tsx",
+      "sha256": "284fd21340729e14a5f2f9e41a8d5bcc40d63d3daaa76826473814ed4dbe0127"
+    },
+    {
+      "path": "src/components/BankInquiryPanel.tsx",
+      "sha256": "5c12fde8ead05e657fbc1520d0de464053b5f6c29b1cf4e4faffd628587ad357"
+    },
+    {
+      "path": "src/components/BankInquirySummary.tsx",
+      "sha256": "62e49cce8cf1d5e3d3aef13799956dd5970d5651f666cd50fd5f0ecb8837a7de"
+    },
+    {
+      "path": "src/components/CardInput.tsx",
+      "sha256": "2131a84a71f6b83bfe812160ced03fb8473c5886484ff3a286a3cf4e157d16eb"
+    },
+    {
+      "path": "src/components/CodeArchitectureView.tsx",
+      "sha256": "1262a7a3018c64520c3ce2c21f0d0ea96fd8d5779bca47c6a16babfaf846f833"
+    },
+    {
+      "path": "src/components/EmployeeRequestsView.tsx",
+      "sha256": "df34b1f1fd0280af6d039c20c5f498c8ddecb246257d535b11fc0610568df03c"
+    },
+    {
+      "path": "src/components/ExternalPaymentEntryForm.tsx",
+      "sha256": "9f72df5018dcf2a76c86295daefd34043fe2379eeb2b0290e896cf2a6452e838"
+    },
+    {
+      "path": "src/components/FinancialReports.tsx",
+      "sha256": "df8dcd2a7a283880cd72af5b70dfd17112178638b7136913d18f01c1b1132bde"
+    },
+    {
+      "path": "src/components/IbanInput.tsx",
+      "sha256": "b23b22f1ea1c8219a589b8eac2c81e055f98d757cb12ccabe7a7041ee47a2668"
+    },
+    {
+      "path": "src/components/InquiryConnectionsPanel.tsx",
+      "sha256": "3cd7ebd615059de03e27bdf08189401253c62890cf75613f2f8895ff5392f152"
+    },
+    {
+      "path": "src/components/JalaliDateInput.tsx",
+      "sha256": "9231e5fcb0658da53a6c9a4b1f7e31edc294a1f5584a06eb057cd5be52851f91"
+    },
+    {
+      "path": "src/components/LoginPage.tsx",
+      "sha256": "e439398a5d5325141a5e9332180bdbd774b811ecdd2788ff4933b9e069c6a06e"
+    },
+    {
+      "path": "src/components/MasterDataBulkDialog.tsx",
+      "sha256": "f65a5fe3430e8ff6ea421f3244f8fae22d83fe7d40a441c05dcd237ef26154fd"
+    },
+    {
+      "path": "src/components/OfficialReviewNotes.tsx",
+      "sha256": "ca9a0c6bc7932adb562a3a7ecbdaead558d0a2b43c6abda2319c4d0ac844ffd6"
+    },
+    {
+      "path": "src/components/ReceiptUpload.tsx",
+      "sha256": "c2e192c811e15fda6cd60f134f463b01f5afbc66c0c81fe9ec56bb8e12952cc3"
+    },
+    {
+      "path": "src/components/RequestDetails.tsx",
+      "sha256": "0591ced244959afa65c0e902f667a962a053ddd4167c3cc8a5e032c3c67fde68"
+    },
+    {
+      "path": "src/components/RequestSummaryTable.tsx",
+      "sha256": "65877e821daa1262cada2a78974a5b9a820aae957d186092b2e4e09437ce400b"
+    },
+    {
+      "path": "src/components/RequestTimeColumns.tsx",
+      "sha256": "f41956aaad21ad29f22e9934e65f07ccda38fed3f59b6673ff8eeea911fc6254"
+    },
+    {
+      "path": "src/components/RialInput.tsx",
+      "sha256": "bb6b58dcd06f8a966aa567148906ec265fbb28e642277c276e397264a061243f"
+    },
+    {
+      "path": "src/components/SettingsView.tsx",
+      "sha256": "e0a2e575df53d42fedf53ee75a159272324e351929bc629cb21e2d44fe3f4000"
+    },
+    {
+      "path": "src/components/SidebarNavigation.tsx",
+      "sha256": "05ea546ed8b590c969479bac26dd366628d06a93302bb830082ff19ddaa4f6c3"
+    },
+    {
+      "path": "src/components/SortableHeader.tsx",
+      "sha256": "f77687e1ccc532628bbbdbbf88de7bb02a2232eb5b10fe4be8c74b4b4fd7cea9"
+    },
+    {
+      "path": "src/components/SourceBankAccountSelector.tsx",
+      "sha256": "4931a95b83f96eceb64b457797b0e954b3f38a6b1c4b2b8abdc6d7fe45ebe2e8"
+    },
+    {
+      "path": "src/components/SubmittedRequestDeleteButton.tsx",
+      "sha256": "8daa619bf63003ab9b98efc024710c0ad572397ccf4a86ac5b4ece35352c5afe"
+    },
+    {
+      "path": "src/components/SubmittedRequestEditDialog.tsx",
+      "sha256": "9d5661a319d6c518e80e7bdf6d404840b52183fa1c099c807271ff9372b5ebe7"
+    },
+    {
+      "path": "src/components/TreasuryReturnDialog.tsx",
+      "sha256": "19f5d946ad1b037b42a77871d9ac41ded2bc00ed20343faa951d8ed8886a90d8"
+    },
+    {
+      "path": "src/components/TreasuryWorkspaceView.tsx",
+      "sha256": "9c0ee7fb16b990ed78929f5c64288a099614854ca3243e555d8f4c1c5d1a0e79"
+    },
+    {
+      "path": "src/components/bank-input.ts",
+      "sha256": "84e891bdd93a8e15c8156209762bf7fbb6b016e898f835eca53db21193fbd0ec"
+    },
+    {
+      "path": "src/data/nextjsCodeTemplates.ts",
+      "sha256": "686c3e724653d9222aa24327bd1298c7e6fd555760f76fe57db2294283a9b005"
+    },
+    {
+      "path": "src/index.css",
+      "sha256": "63e31ed514f85017c5d40ceafe3c409fd50ceef224e6d9a30c0f76dce9b3b523"
+    },
+    {
+      "path": "src/main.tsx",
+      "sha256": "30d02ee59cb6576973dea4368093b2dcae692a40668f288fdbc66a114873fcd3"
+    },
+    {
+      "path": "src/server/access-control.ts",
+      "sha256": "e592e7d2022c59b126c4e1f66a468cedd5bbfb8fb24dd18ac1937ea540c30ed0"
+    },
+    {
+      "path": "src/server/bank-inquiry-runtime.ts",
+      "sha256": "7507b6c47cf6f3b388b94bbd6d1ac9476ca52ff3d1a8716db7e352a1f8cf688b"
+    },
+    {
+      "path": "src/server/bank-inquiry.ts",
+      "sha256": "0ae82f6395b9a04747d482f64a81599c96c542b91de983f94c20b8e795e4f0c6"
+    },
+    {
+      "path": "src/server/cardinfo-secret.ts",
+      "sha256": "4b48a485c4be2f88b7667a77949098faf2203a70582f6ac661346642b009c455"
+    },
+    {
+      "path": "src/server/cardinfo.ts",
+      "sha256": "c7116699159253973a352f2e260acbf2e66cebffa1c8eda44d9c122bed114468"
+    },
+    {
+      "path": "src/server/committed-json.ts",
+      "sha256": "4bc16fd7e0c131b60dcb72c31249b0c88368dd157aea33bc08786da6e250877b"
+    },
+    {
+      "path": "src/server/company-access.ts",
+      "sha256": "36f6b8b58382cc07214f9c7ce42a0ff092551b8c98b645fba822a4fac0a59784"
+    },
+    {
+      "path": "src/server/documents.ts",
+      "sha256": "46a2276a67b143a310e2f9f56e9e24b04b63a15e3b399d2b3199adbac61361cc"
+    },
+    {
+      "path": "src/server/external-entry.ts",
+      "sha256": "4a679b16ebc194db658c874d6d8fa9c500c5ff558f3a58ac5e7b78ce169f36de"
+    },
+    {
+      "path": "src/server/financial-report.ts",
+      "sha256": "274d3fd2f3840798bc8049b44868d86b306c81e7c467d90420c5f2f38bd56aa9"
+    },
+    {
+      "path": "src/server/financial-selection.ts",
+      "sha256": "9852f2ad5b39830fef596af9d798697c3343534c8ed7647997a3e9d0299f04be"
+    },
+    {
+      "path": "src/server/form-dates.ts",
+      "sha256": "3473bc8feae9c6d7d969089c2f5ecb2f949efbe66cdd4a1229d719fca2ee99c5"
+    },
+    {
+      "path": "src/server/inquiry-client.ts",
+      "sha256": "8db70a956d9bd74fe9c02147ee6e23fce1c3823e5fb9ddf009f732065b5c6f9b"
+    },
+    {
+      "path": "src/server/inquiry-connections.ts",
+      "sha256": "6bdd3aee04eba682b017dcd3981a23315a93bb442cc4c3c1096e7136b38a3176"
+    },
+    {
+      "path": "src/server/inquiry-providers.ts",
+      "sha256": "50aca591905d5ff03564994b22dc536b85af44eb9f4ba3fcf6ac98ab1a0d2403"
+    },
+    {
+      "path": "src/server/master-data.ts",
+      "sha256": "4a78cf1951d31180834ebe43b0b7501f8bc6998598f6c07d3b1724ab0ea98fd7"
+    },
+    {
+      "path": "src/server/mutation-queue.ts",
+      "sha256": "01d8406a1295b67905c82ffb1cbbaf52efe9e887ee2f1a7f1ac1b34d623906f9"
+    },
+    {
+      "path": "src/server/notification-access.ts",
+      "sha256": "c54cdb387554e12317f29e927477871fda3338d858e104cfa0c07166b8dc2dcb"
+    },
+    {
+      "path": "src/server/notification-routing.ts",
+      "sha256": "df4f25e94ac5a5d033f6ffae4e6a06481bacf2ba62ded2ed761b23dcc6f5650d"
+    },
+    {
+      "path": "src/server/owner-lock.ts",
+      "sha256": "abd1c483af7de14d7be2a2d3baa3b1a1fa6ca99a9927fb5cc734804e8898f8cf"
+    },
+    {
+      "path": "src/server/review-cost-center.ts",
+      "sha256": "fa0e6c1da705b42f88bfc4aa63152de49b871369a8b2ccc989887de456e30071"
+    },
+    {
+      "path": "src/server/shutdown.ts",
+      "sha256": "a9d00e10d9c1319112c57c95d4061a57910582c3062d35ef2fe97b7f2cd4a19e"
+    },
+    {
+      "path": "src/server/sms-security.ts",
+      "sha256": "10de733c2504031715daf765f55422d5613c6e9881fa12f07818938af550e839"
+    },
+    {
+      "path": "src/server/sqlite-records.ts",
+      "sha256": "f971d8becd08ee85943a2b04f17a198528bb8ecf4f1c2e4f618fed63fd59240c"
+    },
+    {
+      "path": "src/server/state-sync.ts",
+      "sha256": "d700afc94ca763c5c2ad9e0bbd16a6e157838eb58aa4f41e71ee2807d8eb2f1b"
+    },
+    {
+      "path": "src/server/storage-cli.ts",
+      "sha256": "096ebd63f59586fee2fcb4d81b73297c472193b1edcaf74c21c1a9fefc222479"
+    },
+    {
+      "path": "src/server/storage-transfer.ts",
+      "sha256": "5a205e9ab5754c330f9e604da261f946395b7742059ab3a1f0b300213f98875b"
+    },
+    {
+      "path": "src/server/treasury-correction.ts",
+      "sha256": "43ccb1931266707f5d228a0ff8334213b4513d29a678fc305a1bb1654df5a0d8"
+    },
+    {
+      "path": "src/server/treasury-input.ts",
+      "sha256": "f22f2ca27b7c25cb013139f08ce4659c56c87026c1690a8cf01822b5cd080174"
+    },
+    {
+      "path": "src/services/browserNotificationService.ts",
+      "sha256": "856c319cccde918f1393feae8152136f24128d4b10f62818a75736c7d5bdf19b"
+    },
+    {
+      "path": "src/types/treasury.ts",
+      "sha256": "8ea5f7c2b5a5888bbd5aeb9b61ee4a3bb75b007459285810b15843b76407e41d"
+    },
+    {
+      "path": "src/utils/bank-account-import.ts",
+      "sha256": "57cac398cc01107724b893c345c2d564651f991f5a8c70d840ccde245da9303f"
+    },
+    {
+      "path": "src/utils/bank-account-workbook.ts",
+      "sha256": "b2bfec56d56de34ee515bfc02ce93f1f16bc4a18b902bfa3bb5d095c628ba91b"
+    },
+    {
+      "path": "src/utils/bank-account-workbook.worker.ts",
+      "sha256": "f2fddefe2d4ee3b0f1fb7e05e049ddcc6f40a35ae8f5bec22b392df6001edde1"
+    },
+    {
+      "path": "src/utils/bank-identifiers.ts",
+      "sha256": "bc382756cdadfc3318877d303bca7a97b7de5b43a3841b3c7993227255f5b4fb"
+    },
+    {
+      "path": "src/utils/bank-inquiry-export.ts",
+      "sha256": "5ba6d59bdbd30f8c6757f59b522d7bbb4dd839a5a21268c9949ca53877d00257"
+    },
+    {
+      "path": "src/utils/bank-inquiry.ts",
+      "sha256": "77a6aa7e16199ee4d3f29279f973abcbcfd2ce219d18bf0ebb27935806e7fa79"
+    },
+    {
+      "path": "src/utils/bankCards.ts",
+      "sha256": "f0c83513f587c9bdc054519e5a398a9d03bd86aac2c1d02262b36d7b24d6e657"
+    },
+    {
+      "path": "src/utils/completed-payments.ts",
+      "sha256": "252c7ce46606cba88cab7cc249bc53f14a7688fea5b3a2988c73f43b3dc83adf"
+    },
+    {
+      "path": "src/utils/current-date.ts",
+      "sha256": "6110d97a136894c7da62a8d704880490eb847d5e1f579b65bf6b4942ded62148"
+    },
+    {
+      "path": "src/utils/excelExport.ts",
+      "sha256": "876af94482d45fc73bce6580df07ab006e2ed203976ac0dc92110387c4bf1d36"
+    },
+    {
+      "path": "src/utils/financial-report.ts",
+      "sha256": "fa543b695b9134b60a7f74d928528fbe11ea1ab660e20cced604301a66b76d4c"
+    },
+    {
+      "path": "src/utils/inquiry-provider-contract.ts",
+      "sha256": "1092ae57590fc0de8f70cfa972d066fa1c1ae30e403b65a88b556fe5e8e38430"
+    },
+    {
+      "path": "src/utils/jalali-date.ts",
+      "sha256": "5dee2fa76447feedd330a9b36b906acbc21476be8c9e2c28464cdf435f691751"
+    },
+    {
+      "path": "src/utils/master-data-codes.ts",
+      "sha256": "eba5f5fa07e359454de4b6eac79062a80bcbdffb3bdc578e4cf9247045c4a412"
+    },
+    {
+      "path": "src/utils/notification-audience.ts",
+      "sha256": "e48b0952132e8c1a934c19549236c599b3fd07ee89565bdcf7677524cb907179"
+    },
+    {
+      "path": "src/utils/payment-execution-history.ts",
+      "sha256": "f8537677880200b2079146318e509e00955cae8a4d6ab35ee9e05604afacd40a"
+    },
+    {
+      "path": "src/utils/pending-payment.ts",
+      "sha256": "1fbc2bc07925585e1a8cf9198b618ac5a5ec9f4432e7c44fc302725340931293"
+    },
+    {
+      "path": "src/utils/permissions.ts",
+      "sha256": "c1549be94113cad091cfbcf08b75a0be97bbbd19caed5e0c16ccf0981c0a7993"
+    },
+    {
+      "path": "src/utils/receipt-input.ts",
+      "sha256": "b9063ef37bf0a5a6b32a0f7f53e8a1ee3fa1f9a4d875eee77a271750c73a1e7e"
+    },
+    {
+      "path": "src/utils/record-time.ts",
+      "sha256": "bc75317e21347e44576e28867d3a510b29273f2d931ef9d4bc07eeeae7c94115"
+    },
+    {
+      "path": "src/utils/report-cells.ts",
+      "sha256": "ca382adce5789faf4979c03a36cf404e75bb29c10e70ff72981a676e6063e3fe"
+    },
+    {
+      "path": "src/utils/report-workbook.ts",
+      "sha256": "51c447ea79de6e9f631057fbaa9c72a226894d7299c2812261bd1c17bfaa285b"
+    },
+    {
+      "path": "src/utils/request-cost-center.ts",
+      "sha256": "7805c80c986102cae2655c6db92429eb200eaa55e3ecc4a9389d1429dd7a25b8"
+    },
+    {
+      "path": "src/utils/request-deletion.ts",
+      "sha256": "02cc5cbce97836c8ea20b02d6f78ff7f34f915cbb403037a596c7307eebaca65"
+    },
+    {
+      "path": "src/utils/request-details.ts",
+      "sha256": "f93739fd4f04b873640bc9e03a1870dd9658b9690b531a60db9fbf2c1269cdb5"
+    },
+    {
+      "path": "src/utils/request-edit.ts",
+      "sha256": "f7bd6ed734a67e9af30726dc61531c304ae89ae0fb2c0292642d587acee1222c"
+    },
+    {
+      "path": "src/utils/review-edit.ts",
+      "sha256": "e476ddb312498f67c0f574e388c745aa17d7309fc8857bf57a422ad478c9a404"
+    },
+    {
+      "path": "src/utils/review-rejection.ts",
+      "sha256": "c06591726464dafc75210b791259c38fb3fabdb744e5134cba665c5b1b6cdb84"
+    },
+    {
+      "path": "src/utils/rial-input.ts",
+      "sha256": "ccd9aea2216bc3a61de3bc76752e8fceacf786ac275aa7c5838bf689ccb94a39"
+    },
+    {
+      "path": "src/utils/sorting.ts",
+      "sha256": "9b0d88136dad0caf91333596e22b1b5f3cb1265a0bde76dae81b376cfac6e025"
+    },
+    {
+      "path": "src/utils/state-sync.ts",
+      "sha256": "1022be943627960213a6df75eb378c4245b8d5cf84da0efd6a53fa630267db50"
+    },
+    {
+      "path": "src/utils/treasury-correction.ts",
+      "sha256": "787e2ec756cbbb8af621102670eb11a5718bd1026c8a4d3255882df4116c162a"
+    },
+    {
+      "path": "src/utils/treasury-operational-export.ts",
+      "sha256": "7171e4eb18902d81df25e90c83ad3c7aff590b3b77811a9676f3e33d2e2c8d6e"
+    },
+    {
+      "path": "src/utils/treasury-targets.ts",
+      "sha256": "ea98694ecd8b3cbc057d82fb605cf54b03f20604f7083b2dd00bfcea63ce9972"
+    },
+    {
+      "path": "src/utils/user-roles.ts",
+      "sha256": "daa1e0d66ccbbe98f259ac6397cc07c66ab904a025e941e49dbd00ca09d0c62c"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "cbc914147cc208c35cb5f6d405f0f0bc3c1c76ae76bf45bbc4f588b924492d2a"
+    },
+    {
+      "path": "vite.config.ts",
+      "sha256": "a1ac1ca6115f364736a48d1ffa7501d05152dca2745e30ee91e7cdeda5bf41e8"
+    }
+  ],
+  "files": [
+    {
+      "path": "dist/assets/AdminPortalView-W-cvCv65.js",
+      "bytes": 123203,
+      "sha256": "fe3f4381f64fd8b4be93791a8200b418657b75d4e6eec14a172aa09cab51b1e0"
+    },
+    {
+      "path": "dist/assets/aistudio/image_13d95327.png",
+      "bytes": 42835,
+      "sha256": "13d9532735bf61d1f0f55fa114b4e8c67cf28600bb41c187727cf7df6a83d460"
+    },
+    {
+      "path": "dist/assets/aistudio/image_2f905a0e.png",
+      "bytes": 145852,
+      "sha256": "2f905a0ecd003773faa38f7d4b1e38b7b651a5680c16a6bb22f47f3dfd31ad84"
+    },
+    {
+      "path": "dist/assets/aistudio/image_4e7bf234.png",
+      "bytes": 13120,
+      "sha256": "4e7bf2345bd93c00a8b37756132f00f3a59f9de348a0206b87b9759fe3c185fe"
+    },
+    {
+      "path": "dist/assets/aistudio/image_634be1dc.png",
+      "bytes": 45067,
+      "sha256": "634be1dc2960b27c6cc20dd1e6f6ef8b0f1966f3b56877127db737bb333e2886"
+    },
+    {
+      "path": "dist/assets/aistudio/image_9cbdf1a4.png",
+      "bytes": 226198,
+      "sha256": "9cbdf1a489b2061f93f86bcf9fa64e28cc1ca98c1b00a4732395ce38e4358990"
+    },
+    {
+      "path": "dist/assets/aistudio/image_ccb68d7e.png",
+      "bytes": 55026,
+      "sha256": "ccb68d7eacfb350963f8cb89edac0125e05a29dbb7eee08eb6968bbe7aa98305"
+    },
+    {
+      "path": "dist/assets/aistudio/image_e0177558.png",
+      "bytes": 235406,
+      "sha256": "e0177558a9dc88003c72ada353f5588f74d3a773a280e0271fb19002a03897ea"
+    },
+    {
+      "path": "dist/assets/aistudio/image_e3d152f8.png",
+      "bytes": 54439,
+      "sha256": "e3d152f834d3c3b6a420f75373ff25aef90cc7672fdeaa252cd5598609ca6aad"
+    },
+    {
+      "path": "dist/assets/ApprovalsWorkspaceView-f6mfdI48.js",
+      "bytes": 46663,
+      "sha256": "bcf81db89c8d220640265952b7bba908b6cbb7362da3acdd11762bc58f77db0c"
+    },
+    {
+      "path": "dist/assets/arrow-left-right-Coph7TbQ.js",
+      "bytes": 239,
+      "sha256": "2bdaceab767a0a43b9c2cc892c8080ae109a599225b3b916162918e9dc7f8a8c"
+    },
+    {
+      "path": "dist/assets/bank-account-workbook.worker-B32Aog0U.js",
+      "bytes": 367636,
+      "sha256": "0083be6d3a5fbe6a48cc6fb062bc3e800d6874d702e98b636afadb6256654c09"
+    },
+    {
+      "path": "dist/assets/bankCards-DrX-qIoq.js",
+      "bytes": 4665,
+      "sha256": "72523f4c455534364cce207b6facb2565933de39b3b4f1a20ef6f57c2c9f0df5"
+    },
+    {
+      "path": "dist/assets/BankInquiryPanel-BEUsFQEu.js",
+      "bytes": 25790,
+      "sha256": "a80c865a5eb78650c2f45420addb8568fc4dc8cb925de204d4861557a84507ff"
+    },
+    {
+      "path": "dist/assets/CardInput-D9x72arz.js",
+      "bytes": 1216,
+      "sha256": "675e3f5d907db3034ab2450158b0e7a1cc9b32f55e38ebabd0ca66711d38a8f3"
+    },
+    {
+      "path": "dist/assets/EmployeeRequestsView-CX-N0Pvu.js",
+      "bytes": 74966,
+      "sha256": "21abc6cd9ce9dc7cabe07bd1af768f4145a32004d6e39a768a120995d5615ed7"
+    },
+    {
+      "path": "dist/assets/FinancialReports-GOLU2y17.js",
+      "bytes": 10182,
+      "sha256": "be4d61eed87541e345ebea6831e870446a7bb33d91f4c649193c3161aa4a6b55"
+    },
+    {
+      "path": "dist/assets/index-1jfZFn3v.css",
+      "bytes": 61264,
+      "sha256": "4e65c3183e50ee464e59068ca0110c92407c563c04491e3df200cee56196d86f"
+    },
+    {
+      "path": "dist/assets/index-a9RRg8Kh.js",
+      "bytes": 417257,
+      "sha256": "ffaeb29a174c22d96e7d70565ce08adac24438f331008dcebcab119ddc3cb5ad"
+    },
+    {
+      "path": "dist/assets/JalaliDateInput-DQryeUIu.js",
+      "bytes": 5091,
+      "sha256": "7ebbd6d4b355f9ac6bdf92bd36798a752d334fb5226ea2eeca7b42091253567e"
+    },
+    {
+      "path": "dist/assets/jsx-runtime-jIrQOHTd.js",
+      "bytes": 13220,
+      "sha256": "05faafbd0dba1d789ce4e58b4a0381fc5bd304a452dd4dc00d32bfe0b5a307a2"
+    },
+    {
+      "path": "dist/assets/pending-payment-CxSlRqXS.js",
+      "bytes": 3416,
+      "sha256": "59ff7624447d07efd328d05b2f81e662172ef39dbfa1fe676d86f15cbacb204a"
+    },
+    {
+      "path": "dist/assets/report-workbook-fBiDMHoH.js",
+      "bytes": 1460,
+      "sha256": "a43d13962b5b90677a1da80c48ae1ea493c45c0313d9d5586824f0051ca6e040"
+    },
+    {
+      "path": "dist/assets/RequestSummaryTable-DNn1jg0L.js",
+      "bytes": 4921,
+      "sha256": "c939a0016e943abaa33bf25b628dcdbbcbbf4cf8bf15bb04d9a623b87aaf5c63"
+    },
+    {
+      "path": "dist/assets/RialInput-xssA6vbP.js",
+      "bytes": 1966,
+      "sha256": "58013e0ecf9b5101c873f34763053b7ef35516957eb8513de2414e4aff55ceb4"
+    },
+    {
+      "path": "dist/assets/save-BKC8n-1R.js",
+      "bytes": 318,
+      "sha256": "ae9cf2b0c535105d4a402edb9fd8ff19126ec81f0fd3577f83d4ab317cf8cc7c"
+    },
+    {
+      "path": "dist/assets/SettingsView-DgvRIJdG.js",
+      "bytes": 23170,
+      "sha256": "affeaa4a33f870b83f7e51f78fadf6acb53214f29f7ea75df9c25a27eafe70be"
+    },
+    {
+      "path": "dist/assets/sorting-CE4Yp_ux.js",
+      "bytes": 4635,
+      "sha256": "f860ae8354c7d3e2aabe4870ac5b111b804b2498d1f16a0fa71b707782b300d2"
+    },
+    {
+      "path": "dist/assets/trash-2-CFnEV95a.js",
+      "bytes": 419,
+      "sha256": "c39e96a3260555d75b59337ddbdd4edbb10dfb6532eb2f24eabd287103ebbc88"
+    },
+    {
+      "path": "dist/assets/treasury-portal-hero.svg",
+      "bytes": 14880,
+      "sha256": "2542dfd6de39f46d05bf3d3104ffe3d60bac75a05dbad97b1ccca7c0e753a36d"
+    },
+    {
+      "path": "dist/assets/TreasuryWorkspaceView-gaz5PBAX.js",
+      "bytes": 130649,
+      "sha256": "e3b85d392cfa1baa1b1289e9e86a451e5322e94f0414dbc3cc2ad9d9786ff57d"
+    },
+    {
+      "path": "dist/assets/workflow-showcase.svg",
+      "bytes": 5479,
+      "sha256": "e69336b66c6633edf8fe50428472ab0f7c6ae0312d469d404feab2d32fff8558"
+    },
+    {
+      "path": "dist/assets/xlsx-fgRTCIS8.js",
+      "bytes": 328341,
+      "sha256": "a4a653a9a78bbc44c85b94e097add582dadcfad3db73938d326c538a498069ce"
+    },
+    {
+      "path": "dist/build-proof.json",
+      "bytes": 24280,
+      "sha256": "da2af8a2f95f724a1bf68a1ccb457a21671cc047a00699f134d65ea6acd56bbe"
+    },
+    {
+      "path": "dist/index.html",
+      "bytes": 1852,
+      "sha256": "52b58d20bf5ef6a3a22661017a632744a8b550da0e8780cf810dbce492e51704"
+    },
+    {
+      "path": "dist/templates/bank-accounts-template.xlsx",
+      "bytes": 11996,
+      "sha256": "707d2f3199c68e07bdad875dcf23221f781c894ad1288ea5db14142868ef7d67"
+    },
+    {
+      "path": "server.cjs",
+      "bytes": 1505846,
+      "sha256": "8c9957b7802db724bb3cbbcd822134f9df6c03bca14bcac065f9db29ecc1b2de"
+    },
+    {
+      "path": "storage-cli.cjs",
+      "bytes": 16109,
+      "sha256": "16b535eefbdacf51379c3cda7b07a1bc362922414cff01f540febf670e82b211"
+    }
+  ]
+}

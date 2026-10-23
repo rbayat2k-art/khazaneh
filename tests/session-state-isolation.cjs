@@ -2,13 +2,15 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const base='http://127.0.0.1:4322',output=process.env.TREASURY_UI_OUTPUT;
 if(!output||!process.env.TREASURY_TEST_DIR?.includes('/work/'))throw Error('isolated synthetic fixture required');
-async function api(route,token,body){const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});assert.equal(r.status,200,'synthetic setup '+route);return r.json();}
+async function api(route,token,body){body=require('./request-fixture.cjs').requestFixture(route,body);const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});assert.equal(r.status,200,'synthetic setup '+route);return r.json();}
 async function login(page,code){await page.locator('#login-personnel-code').fill(code);await page.locator('#login-password').fill('Synthetic-Only!2026');const logged=page.waitForResponse(r=>r.url().endsWith('/api/auth/login')&&r.request().method()==='POST');await page.getByRole('button',{name:'ورود به پرتال سازمانی',exact:true}).click();assert.equal((await logged).status(),200);}
 (async()=>{fs.mkdirSync(output,{recursive:true});const browser=await chromium.launch({channel:'msedge',headless:true});let held=[];
 try{
  const admin=(await api('/auth/login',null,{personnelCode:'admin',password:'Synthetic-Only!2026'})).token;
  await api('/master-data/companies/save',admin,{name:'TEST PRIVATE'});
  const state=await api('/state',admin),role=state.roleConfigs.find(r=>r.role==='REQUESTER');
+ const accountingRole=state.roleConfigs.find(r=>r.role==='ACCOUNTING');
+ await api('/roles/save',admin,{...accountingRole,allowedCompanies:['TEST']});
  await api('/roles/save',admin,{...role,allowedCompanies:['TEST','TEST PRIVATE']});
  const other=state.users.find(u=>u.id==='other');await api('/users/save',admin,{...other,company:'TEST PRIVATE',supervisorId:null});
  const owner=(await api('/auth/login',null,{personnelCode:'other',password:'Synthetic-Only!2026'})).token;

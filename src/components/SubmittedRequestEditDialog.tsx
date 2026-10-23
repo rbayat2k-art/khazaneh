@@ -1,9 +1,13 @@
+import {RialInput} from './RialInput';
+import {CardInput} from './CardInput';
+import {IbanInput} from './IbanInput';
+import {JalaliDateInput} from './JalaliDateInput';
 import React, { useEffect, useRef, useState } from 'react';
 import { Save, X, Upload } from 'lucide-react';
 import {cardInputProps,ibanInputProps} from './bank-input';
-import {cleanIban,formatCardNumber} from '../utils/bankCards';
+import {cleanIban,formatCardNumber,detectBankFromCard,DESTINATION_BANKS} from '../utils/bankCards';
 import {bankFieldsError} from '../utils/bank-identifiers';
-import { SYSTEM_BANKS, type AttachmentFile, type CostCenterItem } from '../types/treasury';
+import { type AttachmentFile, type CostCenterItem } from '../types/treasury';
 import type { EditableRequestRow, SubmittedEditKind, SubmittedRequestChanges, SubmittedRequestEdit } from '../utils/request-edit';
 
 export type SubmittedEditTarget = { itemType: SubmittedEditKind; requestId: string; rowId?: string; trackingCode: string; row: EditableRequestRow };
@@ -11,7 +15,7 @@ type Props = { target: SubmittedEditTarget; requesterId: string; costCenters: Co
 const control='w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600';
 
 export function SubmittedRequestEditDialog({target,requesterId,costCenters,canEditAttachments,onClose,onSave}:Props){
-  const row=target.row as any,advance=target.itemType==='ADVANCE',batch=target.itemType==='BATCH_ITEM';
+  const row=target.row as any,advance=target.itemType==='ADVANCE',batch=target.itemType==='BATCH_ITEM',requireCard=!advance&&(!batch||row.itemType!=='ADVANCE');
   const [draft,setDraft]=useState<Record<string,string>>(()=>Object.fromEntries(['amount','payeeName','accountOrCard','iban','bankName','invoiceNumber','costCenter','requestedMonth','suggestedDate','dueDate','priority'].map(key=>[key,key==='iban'&&row[key]==='IR'?'':String(row[key]??(key==='priority'?'Normal':''))])));
   const [description,setDescription]=useState(advance?row.reason||'':row.description||'');
   const [files,setFiles]=useState<AttachmentFile[]>(row.attachments||[]);
@@ -19,7 +23,7 @@ export function SubmittedRequestEditDialog({target,requesterId,costCenters,canEd
   const [readingFiles,setReadingFiles]=useState(false);
   const panel=useRef<HTMLDivElement>(null),amount=useRef<HTMLInputElement>(null);
   useEffect(()=>{const previous=document.activeElement as HTMLElement;amount.current?.focus();return()=>{if(previous?.isConnected)previous.focus();};},[]);
-  const set=(key:string,value:string)=>setDraft(prev=>({...prev,[key]:value}));
+  const set=(key:string,value:string)=>setDraft(prev=>({...prev,[key]:value,...(key==='accountOrCard'?{bankName:detectBankFromCard(value)||''}:{})}));
   async function addFiles(e:React.ChangeEvent<HTMLInputElement>){
     const input=e.currentTarget,selected=Array.from(input.files||[]);
     if(selected.some(file=>file.size>10*1024*1024)){setError('حداکثر اندازه هر مدرک۱۰مگابایت است.');input.value='';return;}
@@ -30,11 +34,11 @@ export function SubmittedRequestEditDialog({target,requesterId,costCenters,canEd
     }catch{setError('خواندن مدرک ناموفق بود.');}
     finally{input.value='';setReadingFiles(false);}
   }
-  const field=(key:string,label:string,required=false)=><label className="block text-xs font-semibold text-slate-700 space-y-1" key={key}><span>{label}</span><input aria-label={label} value={draft[key]} required={required} {...(key==='accountOrCard'?cardInputProps:key==='iban'?ibanInputProps:{})} onChange={e=>set(key,key==='accountOrCard'?formatCardNumber(e.target.value):key==='iban'?cleanIban(e.target.value):e.target.value)} className={control} dir={['accountOrCard','iban'].includes(key)?'ltr':undefined}/></label>;
+  const field=(key:string,label:string,required=false)=>{const Control=key==='accountOrCard'?CardInput:key==='iban'?IbanInput:['dueDate','suggestedDate'].includes(key)?JalaliDateInput:'input';return <label className="block text-xs font-semibold text-slate-700 space-y-1" key={key}><span>{label}</span><Control aria-label={label} value={draft[key]} required={required} {...(key==='iban'?ibanInputProps:{})} onChange={e=>set(key,key==='accountOrCard'?formatCardNumber(e.target.value):key==='iban'?cleanIban(e.target.value):e.target.value)} className={control} dir={['accountOrCard','iban'].includes(key)?'ltr':undefined}/></label>;};
   async function save(e:React.FormEvent){
     e.preventDefault();if(busy||readingFiles)return;setError('');
     const value=Number(draft.amount);if(!Number.isSafeInteger(value)||value<=0){setError('مبلغ باید عدد صحیح مثبت به ریال باشد.');return;}
-    if(!advance){const error=bankFieldsError({accountOrCard:draft.accountOrCard,iban:draft.iban});if(error){setError(error);return;}}
+    if(!advance){const error=bankFieldsError({accountOrCard:draft.accountOrCard,iban:draft.iban},requireCard);if(error){setError(error);return;}}
     const changes:SubmittedRequestChanges={amount:value,description,...(canEditAttachments?{attachments:files}:{})};
     if(advance){changes.requestedMonth=draft.requestedMonth;changes.suggestedDate=draft.suggestedDate;}
     else {for(const key of ['payeeName','accountOrCard','iban','bankName','invoiceNumber','costCenter']) (changes as any)[key]=draft[key];if(!batch){changes.dueDate=draft.dueDate;changes.priority=draft.priority as 'Normal'|'Urgent';}else if(row.itemType==='ADVANCE')changes.requestedMonth=draft.requestedMonth;}
@@ -53,12 +57,12 @@ export function SubmittedRequestEditDialog({target,requesterId,costCenters,canEd
       {error&&<p role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800">{error}</p>}
       <form onSubmit={save} className="space-y-3">
         <fieldset disabled={busy||readingFiles} className="space-y-3">
-          <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>مبلغ (ریال)</span><input ref={amount} aria-label="مبلغ (ریال)" type="number" min={1} step={1} required value={draft.amount} onChange={e=>set('amount',e.target.value)} className={control}/></label>
+          <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>مبلغ (ریال)</span><RialInput ref={amount} aria-label="مبلغ (ریال)" min={1} step={1} required value={draft.amount} onChange={e=>set('amount',e.target.value)} className={control}/></label>
           {!advance&&field('payeeName','نام دریافت‌کننده (صاحب حساب)',true)}
           <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>شرح درخواست</span><textarea aria-label="شرح درخواست" required rows={3} value={description} onChange={e=>setDescription(e.target.value)} className={control}/></label>
           {advance?<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{field('requestedMonth','ماه مورد تقاضا',true)}{field('suggestedDate','تاریخ پیشنهادی (شمسی)')}</div>:<>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{field('accountOrCard','شماره کارت (۱۶ رقم)')}{field('iban','شماره شبا')}</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="block text-xs font-semibold text-slate-700 space-y-1"><span>بانک مقصد</span><select aria-label="بانک مقصد" value={draft.bankName} onChange={e=>set('bankName',e.target.value)} className={control}>{[...new Set([draft.bankName,...SYSTEM_BANKS])].map(bank=><option key={bank} value={bank}>{bank||'تعیین نشده'}</option>)}</select></label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{field('accountOrCard','شماره کارت (۱۶ رقم)',requireCard)}{field('iban','شماره شبا')}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="block text-xs font-semibold text-slate-700 space-y-1"><span>بانک مقصد</span><select aria-label="بانک مقصد" value={draft.bankName} onChange={e=>set('bankName',e.target.value)} className={control}>{[...new Set(['',draft.bankName,...DESTINATION_BANKS])].map(bank=><option key={bank} value={bank}>{bank||'انتخاب بانک (اختیاری)'}</option>)}</select></label>
               <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>مرکز هزینه</span><select aria-label="مرکز هزینه" value={draft.costCenter} onChange={e=>set('costCenter',e.target.value)} className={control}>
                 <option value="">انتخاب مرکز هزینه</option>
                 {draft.costCenter&&!costCenters.some(cc=>cc.name===draft.costCenter)&&<option value={draft.costCenter} disabled>{draft.costCenter} (ثبت قبلی؛ خارج از فهرست فعال)</option>}

@@ -1,0 +1,112 @@
+// Real built UI and API; synthetic SQLite only. The dropped response follows a durable commit.
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {readFixture}=require('./fixture-store.cjs'),{readCommittedResponse}=require('./browser-response.cjs');
+const base='http://127.0.0.1:4322',out=process.env.TREASURY_UI_OUTPUT,root=process.env.TREASURY_TEST_DIR,password='Synthetic-Only!2026';if(!out||!root?.replaceAll('\\','/').includes('/work/'))throw Error('Synthetic output required');
+const store=()=>JSON.parse(readFixture(path.join(root,'treasury-db.json'))),pixel=Buffer.from(require('./manual-fixture.cjs').manualFixture({}).receiptFileUrl.split(',')[1],'base64');
+async function login(page,user){await page.goto(base);
+await page.locator('#login-personnel-code').fill(user);
+await page.locator('#login-password').fill(password);
+await page.getByRole('button',{name:'ورود به پرتال سازمانی',exact:true}).click();
+await page.getByRole('button',{name:page.viewportSize().width<768?'باز کردن منوی کناری':'خروج',exact:true}).waitFor();}
+async function nav(page,groupName,child){const mobile=page.viewportSize().width<768;if(mobile)await page.getByRole('button',{name:'باز کردن منوی کناری',exact:true}).click();
+const group=page.getByRole('button',{name:groupName}),sub=group.locator('..').getByRole('button',{name:child});await group.waitFor();if(!await sub.isVisible())await group.click();
+await sub.click();if(mobile)await page.waitForFunction(()=>document.querySelector('aside[aria-label="ناوبری اصلی پرتال"]').getBoundingClientRect().left>=innerWidth-1);}
+async function common(form){await form.getByRole('textbox',{name:/شرح و بابت پرداخت/}).fill('TEST external quick request');
+await form.getByRole('textbox',{name:/نام دریافت‌کننده/}).fill('TEST external payee');
+await form.locator('input[data-form-value=rial]').fill('12000');
+await form.getByRole('textbox',{name:/دستوردهنده/}).fill('TEST manager outside portal');}
+const row=(page,code)=>page.getByRole('row').filter({has:page.getByText(code,{exact:true})});
+(async()=>{const browser=await chromium.launch({channel:'msedge',headless:true});
+let page;
+const errors=[];try{const ctx=await browser.newContext({viewport:{width:1600,height:1000}});page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.name));
+await login(page,'treasury');
+await nav(page,/^خزانه‌داری و عملیات پرداخت/,/^ثبت دستور پرداخت خارج سامانه/);
+let form=page.getByRole('form',{name:'فرم دستور پرداخت خارج سامانه',exact:true});
+await common(form);
+await form.getByRole('combobox',{name:/مرکز هزینه/}).selectOption({label:'TEST — 003001'});
+await form.locator('input[data-form-value=card]').fill('0'.repeat(16));
+const wait=page.waitForResponse(r=>r.url().endsWith('/api/treasury/external-order')&&r.request().method()==='POST');
+await form.getByRole('button',{name:'ثبت و ارسال به تأیید حسابداری',exact:true}).click();
+const response=await wait;assert.equal(response.status(),200);
+const made=(await readCommittedResponse(response)).item;assert.equal(made.status,'Pending_Accounting');assert.equal(made.requesterId,'treasury');
+await page.getByText(/دستور به صف تأیید حسابداری ارسال شد/).waitFor();assert.equal(await form.locator('input[data-form-value=rial]').inputValue(),'');assert.equal(await form.getByRole('textbox',{name:/نام دریافت‌کننده/}).inputValue(),'');
+await page.screenshot({path:path.join(out,'external-order-desktop.png'),fullPage:true});
+const accPage=await(await browser.newContext({viewport:{width:1600,height:1000}})).newPage();
+await login(accPage,'accounting');
+await nav(accPage,/^کارتابل بررسی مالی حسابداری/,/^در انتظار تأیید من/);
+await row(accPage,made.trackingCode).getByRole('button',{name:'مشاهده کامل فرم',exact:true}).click();const full=accPage.getByRole('dialog',{name:'مشاهده کامل فرم',exact:true});await full.waitFor();assert.match(await full.innerText(),/TEST manager outside portal/);await accPage.keyboard.press('Escape');
+const approved=accPage.waitForResponse(r=>r.url().endsWith('/api/review/row-action'));
+await row(accPage,made.trackingCode).getByRole('button',{name:'تأیید',exact:true}).click();assert.equal((await approved).status(),200);
+await page.reload();
+await nav(page,/^خزانه‌داری و عملیات پرداخت/,/^صف انتظار پرداخت/);
+await row(page,made.trackingCode).waitFor();assert.equal(store().paymentRequests.find(p=>p.id===made.id).status,'Pending_Treasury');
+await row(page,made.trackingCode).getByRole('button',{name:'ثبت پرداخت',exact:true}).click();
+const dialog=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:/ثبت پرداخت انجام‌شده توسط خزانه/})});
+await dialog.getByPlaceholder('مثلاً 9988224411').fill('TEST EXTERNAL QUEUE PAYMENT');
+const payment=page.waitForResponse(r=>r.url().endsWith('/api/treasury/execute-payment'));
+await dialog.getByRole('button',{name:'تایید و ثبت پرداخت با حساب مبدأ انتخاب‌شده',exact:true}).click();assert.equal((await payment).status(),200);
+await dialog.waitFor({state:'hidden'});assert.equal(store().paymentRequests.find(p=>p.id===made.id).status,'Paid');
+await nav(page,/^خزانه‌داری و عملیات پرداخت/,/^ثبت پرداخت انجام‌شده$/);form=page.getByRole('form',{name:'فرم ثبت پرداخت انجام‌شده',exact:true});
+await common(form);
+await form.getByRole('textbox',{name:/شماره پیگیری بانکی/}).fill('TEST EXTERNAL ACTUAL RECEIPT');
+const search=form.getByPlaceholder('نام بانک، عنوان حساب، شماره حساب، شبا یا کارت را تایپ کنید...');if(await search.isVisible()){await search.fill('TEST source');
+await form.getByRole('option').filter({hasText:'TEST source'}).click();}assert.equal(await form.evaluate(f=>f.checkValidity()),false,'Actual receipt must be required');
+let committed;
+await page.route('**/api/treasury/manual-payment',async route=>{const real=await route.fetch();assert.equal(real.status(),200);committed=(await real.json()).manualPayment;
+await route.abort('failed');});
+const before=store().manualPayments.length;
+await form.locator('input[type=file]').setInputFiles({name:'TEST-bank.png',mimeType:'image/png',buffer:pixel});
+await page.waitForFunction(()=>!document.querySelector('form[aria-label="فرم ثبت پرداخت انجام‌شده"] fieldset').disabled);
+await form.getByRole('button',{name:'ثبت پرداخت انجام‌شده',exact:true}).click();
+await page.getByText(/نتیجه قبلی از سرور بازیابی شد/).waitFor();assert.ok(committed);assert.equal(store().manualPayments.length,before+1);assert.equal(store().receiptArchives.filter(r=>r.relatedPaymentIds.includes(committed.id)).length,1);
+await page.unroute('**/api/treasury/manual-payment');
+await page.getByRole('button',{name:'خروج',exact:true}).click();
+await login(page,'treasury');
+await nav(page,/^خزانه‌داری و عملیات پرداخت/,/^ثبت پرداخت انجام‌شده$/);
+await page.getByText(/نتیجه قبلی از سرور بازیابی شد/).waitFor();assert.equal(store().manualPayments.length,before+1);
+await page.getByRole('button',{name:'ثبت مورد جدید',exact:true}).click();
+await page.screenshot({path:path.join(out,'already-paid-desktop.png'),fullPage:true});
+// A recovered success in the same mounted form must not leave a valid copy to submit again.
+await common(form);
+await form.getByRole('textbox',{name:/شماره پیگیری بانکی/}).fill('TEST SECOND RECOVERED RECEIPT');
+if(await search.isVisible()){await search.fill('TEST source');await form.getByRole('option').filter({hasText:'TEST source'}).click();}
+await page.route('**/api/treasury/manual-payment',async route=>{const real=await route.fetch();assert.equal(real.status(),200);committed=(await real.json()).manualPayment;await route.abort('failed');});
+await form.locator('input[type=file]').setInputFiles({name:'TEST-bank-second.png',mimeType:'image/png',buffer:pixel});
+await page.waitForFunction(()=>!document.querySelector('form[aria-label="فرم ثبت پرداخت انجام‌شده"] fieldset').disabled);
+await form.getByRole('button',{name:'ثبت پرداخت انجام‌شده',exact:true}).click();
+await page.getByText(/نتیجه قبلی از سرور بازیابی شد/).waitFor();
+await page.unroute('**/api/treasury/manual-payment');
+await page.getByRole('button',{name:'ثبت مورد جدید',exact:true}).click();
+await form.getByText('نتیجه قبلی تأیید شد؛ می‌توانید مورد تازه‌ای ثبت کنید.',{exact:true}).waitFor();
+assert.equal(await form.locator('input[data-form-value=rial]').inputValue(),'');
+assert.equal(await form.getByRole('textbox',{name:/شماره پیگیری بانکی/}).inputValue(),'');
+assert.equal(await form.locator('input[type=file]').evaluate(e=>e.files.length),0);
+assert.equal(store().manualPayments.length,before+2);
+// Two real tabs sharing Web Locks/storage must not create two payments when the
+// first succeeds while the second submission is already waiting for the lock.
+const peer=await ctx.newPage();await peer.goto(base);
+await nav(peer,/^خزانه‌داری و عملیات پرداخت/,/^ثبت پرداخت انجام‌شده$/);
+const peerForm=peer.getByRole('form',{name:'فرم ثبت پرداخت انجام‌شده',exact:true});
+for(const f of [form,peerForm]){await common(f);await f.getByRole('textbox',{name:/شماره پیگیری بانکی/}).fill('TEST TWO TABS ONE ENTRY');
+const s=f.getByPlaceholder('نام بانک، عنوان حساب، شماره حساب، شبا یا کارت را تایپ کنید...');
+if(await s.isVisible()){await s.fill('TEST source');await f.getByRole('option').filter({hasText:'TEST source'}).click();}
+await f.locator('input[type=file]').setInputFiles({name:'TEST-shared-bank.png',mimeType:'image/png',buffer:pixel});}
+const keys=[];let releaseResponse,committedSignal;
+const held=new Promise(resolve=>{releaseResponse=resolve;}),didCommit=new Promise(resolve=>{committedSignal=resolve;});
+await page.route('**/api/treasury/manual-payment',async route=>{keys.push(route.request().postDataJSON().idempotencyKey);const real=await route.fetch();assert.equal(real.status(),200);committedSignal();await held;await route.fulfill({response:real});});
+await peer.route('**/api/treasury/manual-payment',async route=>{keys.push(route.request().postDataJSON().idempotencyKey);await route.continue();});
+const beforeTabs=store().manualPayments.length;
+await form.getByRole('button',{name:'ثبت پرداخت انجام‌شده',exact:true}).click();await didCommit;
+await peerForm.getByRole('button',{name:'ثبت پرداخت انجام‌شده',exact:true}).click();
+await peerForm.getByRole('button',{name:'در حال ثبت…',exact:true}).waitFor();assert.equal(keys.length,1);
+releaseResponse();
+await form.getByText(/نتیجه قبلی از سرور بازیابی شد/).waitFor();await peerForm.getByText(/نتیجه قبلی از سرور بازیابی شد/).waitFor();
+assert.equal(keys.length,2);assert.equal(new Set(keys).size,1);assert.equal(store().manualPayments.length,beforeTabs+1);
+const shared=store().manualPayments.find(m=>m.entryOperation?.key===keys[0]);assert.ok(shared);const sharedReceipts=store().receiptArchives.filter(r=>r.relatedPaymentIds.includes(shared.id));assert.equal(sharedReceipts.length,1);assert.equal(sharedReceipts[0].bankRefNumber,'TEST TWO TABS ONE ENTRY');
+await page.unroute('**/api/treasury/manual-payment');await peer.close();
+await page.setViewportSize({width:390,height:900});
+await page.reload();
+await nav(page,/^خزانه‌داری و عملیات پرداخت/,/^ثبت دستور پرداخت خارج سامانه/);
+await page.getByRole('form',{name:'فرم دستور پرداخت خارج سامانه',exact:true}).waitFor();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+await page.screenshot({path:path.join(out,'external-order-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);
+const result={status:'PASS',realBuiltUIAndAPI:true,twoSeparateMenus:true,unpaidToAccountingThenExistingTreasuryPayment:true,externalPrincipalVisible:true,requiredUploadedReceipt:true,manualLostResponseAfterCommitRecoveredAfterRelogin:true,noDuplicate:true,queuedTwoTabSuccessSharesOneOperation:true,successfulOrderFormCleared:true,recoveredNewEntryClearsFieldsAndFile:true,mobileRTL:true,productionAccess:false,errors};fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2),{flag:'wx'});console.log(JSON.stringify(result));}catch(e){if(page)await page.screenshot({path:path.join(out,'failure.png'),fullPage:true});throw e;}finally{await browser.close();}})().catch(e=>{console.error(e.stack);process.exitCode=1;});

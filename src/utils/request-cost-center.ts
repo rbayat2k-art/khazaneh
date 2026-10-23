@@ -1,0 +1,5 @@
+import type {CostCenterItem} from '../types/treasury';
+type CompanyRow={companyId?:string;company?:string;companyName?:string};
+/** ID wins after a rename. Legacy names must agree exactly; unknown IDs fail closed. */
+function companyKey(row:CompanyRow,companies:Array<{id:string;name:string}>,fallback=''):string|null{if(row.companyId){const c=companies.find(c=>c.id===row.companyId);return c?'id:'+c.id:null;}const declared=[row.company,row.companyName].filter((v):v is string=>typeof v==='string'&&!!v.trim());if(!declared.length&&fallback)declared.push(fallback);if(!declared.length)return null;const keys=declared.map(v=>{const c=companies.find(c=>c.id===v||c.name===v);return c?'id:'+c.id:'name:'+v;});return keys.every(k=>k===keys[0])?keys[0]:null;}
+export function requestCostCenters(centers:CostCenterItem[],companies:Array<{id:string;name:string}>,request:CompanyRow,requesterCompany=''){const key=companyKey(request,companies,requesterCompany);return key?centers.filter(c=>c.isActive!==false&&companyKey(c,companies)===key):[];}

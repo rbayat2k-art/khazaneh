@@ -6,7 +6,7 @@ if(!out||!root?.includes('/work/'))throw Error('Explicit disposable synthetic fi
 const password='Synthetic-Only!2026',errors=[];
 const labels=['همه درخواست‌ها و سوابق من','پیگیری مساعده تکی','پیگیری مساعده گروهی','پیگیری درخواست پرداخت تکی','پیگیری درخواست پرداخت گروهی','نیازمند اصلاح و بازنگری'];
 const headings=['کارتابل جامع پیگیری و سوابق درخواست‌های من','پیگیری مساعده تکی','پیگیری مساعده گروهی','پیگیری دستور پرداخت‌های تکی','پیگیری درخواست‌های پرداخت گروهی (تجمیعی)','درخواست‌ها و ردیف‌های نیازمند اصلاح و بازنگری'];
-async function api(route,token,body){const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});assert.equal(r.status,200,route);return r.json();}
+async function api(route,token,body){body=require('./request-fixture.cjs').requestFixture(route,body);const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});assert.equal(r.status,200,route);return r.json();}
 async function token(personnelCode){return(await api('/auth/login',null,{personnelCode,password})).token;}
 async function login(page,user){await page.goto(base);await page.locator('#login-personnel-code').fill(user);await page.locator('#login-password').fill(password);await page.getByRole('button',{name:'ورود به پرتال سازمانی',exact:true}).click();await page.getByRole('button',{name:page.viewportSize().width<768?'باز کردن منوی کناری':'خروج',exact:true}).waitFor();}
 async function select(page,index,screenshot){

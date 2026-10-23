@@ -3,12 +3,15 @@ import {types} from 'node:util';
 import type { TreasuryDatabaseState, User, RolePermissionSet, AccessScope } from '../types/treasury';
 import { getUserRoles } from '../utils/user-roles';
 import { canEditSubmittedRequest } from '../utils/request-edit';
+import {canDeleteSubmittedRequest,hasDeletionFinancialLinks} from '../utils/request-deletion';
 import {ownsOpenRejection} from '../utils/review-rejection';
 import {treasuryInput} from './treasury-input';
 import {freeze} from 'immer';
 import {companyPolicy} from './company-access';
-import {notificationVisible} from './notification-access';
+import {notificationVisible,notificationQueueAllowed} from './notification-access';
 import {FinancialSelectionCache,immutableScalars,immutableScalarArray} from './financial-selection';
+import {correctionTarget,correctionAdmission,correctionInputError} from './treasury-correction';
+import {openTreasuryCorrection} from '../utils/treasury-correction';
 
 export type EffectiveAccess = {
   effectivePermissions: RolePermissionSet;
@@ -16,7 +19,7 @@ export type EffectiveAccess = {
   effectiveApprovalLimitRial: number;
   effectivePaymentLimitRial: number;
 };
-type FinancialRow = { id: string; requesterId?: string; department?: string; company?: string; supervisorId?: string | null; status?: string; version?: number; amount?: number; approvedAmount?: number | null; items?: any[] };
+type FinancialRow = { id: string; requesterDeletedAt?:string; requesterId?: string; department?: string; company?: string; supervisorId?: string | null; status?: string; version?: number; amount?: number; approvedAmount?: number | null; items?: any[] };
 export type AccessDecision = { status: number; error: string;code?:string } | null;
 const denied = (error = 'شما مجوز انجام این عملیات یا دسترسی به این اطلاعات را ندارید.'): AccessDecision => ({ status: 403, error });
 const positiveRial=(value:unknown):boolean=>(typeof value==='number'||typeof value==='string'&&/^\d+$/.test(value))&&Number.isSafeInteger(Number(value))&&Number(value)>0;
@@ -31,6 +34,7 @@ function reportsTo(requesterId:string|undefined,viewerId:string,findUser:(id:str
   return false;
 }
 export function canSeeRequest(row: FinancialRow, viewer: User, db: TreasuryDatabaseState, auth: EffectiveAccess,findUser=(id:string|undefined)=>db.users.find(u=>u.id===id),companyAllowed=(row:FinancialRow)=>companyPolicy(viewer,db).financial(row),subordinate?:(id:string|undefined)=>boolean): boolean {
+  if(row.requesterDeletedAt)return false;
   if (viewer.role === 'ADMIN') return true;
   if(!companyAllowed(row))return false;
   if (!auth.effectivePermissions.canViewRequests) return false;
@@ -47,9 +51,9 @@ export function canSeeRequest(row: FinancialRow, viewer: User, db: TreasuryDatab
 }
 
 function financialTarget(db: TreasuryDatabaseState, id: string, kind?: string, batchId?: string): FinancialRow | undefined {
-  if (kind === 'BATCH_ITEM') return db.batchPayments.find(r => r.id === (batchId || id));
+  if (kind === 'BATCH_ITEM') return db.batchPayments.find(r => !r.requesterDeletedAt && r.id === (batchId || id));
   const pools = kind === 'ADVANCE' ? [db.advanceRequests] : kind === 'PAYMENT' ? [db.paymentRequests] : kind === 'BATCH' ? [db.batchPayments] : [db.advanceRequests, db.paymentRequests, db.batchPayments];
-  return pools.flat().find(r => r.id === id);
+  return pools.flat().find(r => !r.requesterDeletedAt && r.id === id);
 }
 
 /** Shared by in-app notice writes and SMS delivery; the audience alone is not authority. */
@@ -72,7 +76,7 @@ export function authorizeRequest(req: Pick<Request, 'path' | 'method' | 'body'>,
   const actors: Record<string, string[]> = {
     '/notifications/read': ['userId'], '/auth/preferences': ['userId'], '/auth/change-password': ['userId'],
     '/auth/logout-other-sessions': ['userId'], '/advance-requests': ['requesterId'], '/payment-requests': ['requesterId'],
-    '/batch-payments': ['requesterId'], '/requests/resubmit': ['requesterId'], '/requests/edit-submitted':['requesterId'], '/review/row-action': ['reviewerId'],
+    '/batch-payments': ['requesterId'], '/requests/resubmit': ['requesterId'], '/requests/edit-submitted':['requesterId'], '/requests/delete-submitted':['requesterId'], '/review/row-action': ['reviewerId'],
     '/review/bulk-action': ['reviewerId'], '/approver/review': ['approverId'], '/accounting/review': ['accountingId'],
   };
   let actorFields = actors[route] || [];
@@ -84,26 +88,50 @@ export function authorizeRequest(req: Pick<Request, 'path' | 'method' | 'body'>,
     body[field] = viewer.id;
   }
   const requires: Record<string, keyof RolePermissionSet> = {
+    '/reports/treasury':'canAccessTreasuryReports', '/reports/treasury/export':'canAccessTreasuryReports',
     '/users/save': 'canManageUsers', '/users/toggle-status': 'canManageUsers', '/users/reset-password': 'canManagePasswordRecovery',
     '/roles/save': 'canManageRoles', '/roles/delete': 'canManageRoles', '/roles/reset-defaults': 'canManageRoles',
     '/advance-requests': 'canSubmitSingleAdvance', '/payment-requests': 'canSubmitSinglePayment',
     '/requests/resubmit': 'canResubmitRevision',
+    '/treasury/return-for-correction': 'canExecutePayment',
     '/requests/edit-submitted': 'canCreateRequest',
+    '/requests/delete-submitted': 'canCreateRequest',
     '/treasury/move-pool': 'canExecutePayment', '/treasury/execute-payment': 'canExecutePayment',
     '/treasury/manual-payment': 'canCreateManualPayment', '/treasury/daily-cover': 'canCloseDailyCover',
+    '/treasury/external-order':'canCreateManualPayment',
+    '/bank-inquiry/config':'canManageBankInquiry',
+    '/bank-inquiry/credential':'canManageBankInquiry',
+    '/bank-inquiry/connections':'canManageBankInquiry',
+    '/bank-inquiry/credits':'canManageBankInquiry',
+    '/bank-inquiry/enqueue':'canInquireBankDetails',
+    '/bank-inquiry/complete-card':'canInquireBankDetails',
+    '/bank-inquiry/confirm-owner':'canConfirmBankOwner',
+    '/bank-inquiry/result':'canInquireBankDetails',
     '/treasury/bank-accounts/save': 'canManageBankAccounts', '/treasury/bank-accounts/toggle-status': 'canManageBankAccounts',
     '/treasury/bank-accounts/import-preview':'canManageBankAccounts', '/treasury/bank-accounts/import':'canManageBankAccounts',
     '/treasury/bank-accounts/set-default': 'canManageBankAccounts', '/sms/config': 'canManageSmsGateway', '/sms/test': 'canManageSmsGateway',
   };
-  let permission = requires[route];
+  let permission:keyof RolePermissionSet|undefined = requires[route];
+  if(route==='/bank-inquiry/config'&&req.method==='GET')permission=undefined;
   if (route.startsWith('/users/') && req.method === 'DELETE') permission = 'canManageUsers';
   if (route.startsWith('/master-data/companies/')) permission = 'canManageCompanies';
   if (route.startsWith('/master-data/departments/')) permission = 'canManageDepartments';
   if (route.startsWith('/master-data/cost-centers/')) permission = 'canManageCostCenters';
   if (permission && !p[permission]) return denied();
+  if(route==='/reports/treasury/export'&&!p.canExportReports)return denied();
+  if(route==='/treasury/return-for-correction'||route==='/requests/resubmit'&&openTreasuryCorrection(correctionTarget(db,body).row||{})){
+    const inputError=correctionInputError(body,route==='/treasury/return-for-correction');if(inputError)return inputError;
+    const {row,parent}=correctionTarget(db,body);
+    if(!row||!parent)return {status:404,error:'درخواست یا ردیف یافت نشد.'};
+    if(!canSeeRequest(parent as any,viewer,db,auth))return denied();
+    if(body.newAttachments?.length&&!p.canViewAttachments)return denied('مجوز پیوست غیرفعال است.');
+    return correctionAdmission(body,route==='/treasury/return-for-correction',row,parent,viewer,auth,db);
+  }
   const company=companyPolicy(viewer,db);
+  if(route==='/treasury/external-order'&&(!p.canCreateRequest||!p.canSubmitSinglePayment))return denied();
+  if(route==='/treasury/manual-payment'&&(!p.canViewAttachments||body.createdById!==undefined&&body.createdById!==viewer.id))return denied();
   if(viewer.role!=='ADMIN'){
-    if(['/advance-requests','/payment-requests','/batch-payments'].includes(route)&&!company.has(viewer.company))return denied();
+    if(['/advance-requests','/payment-requests','/batch-payments','/treasury/external-order'].includes(route)&&!company.has(viewer.company))return denied();
     if(['/treasury/execute-payment','/treasury/manual-payment'].includes(route)&&!company.bank(body.sourceBankAccountId))return denied();
     if(route.startsWith('/treasury/bank-accounts/')){
       const payload=body.account||body,id=route.endsWith('/save')?payload.id:body.accountId,account=id?(db.companyBankAccounts||[]).find(r=>r.id===id):undefined;
@@ -147,6 +175,10 @@ export function authorizeRequest(req: Pick<Request, 'path' | 'method' | 'body'>,
   if (route === '/approver/review' && !p.canAccessApproverCartable) return denied();
   if (route === '/accounting/review' && !p.canAccessAccountingCartable) return denied();
   if (route.startsWith('/review/') && !(p.canAccessApproverCartable || p.canAccessAccountingCartable)) return denied();
+  if(['/review/row-action','/review/bulk-action','/approver/review','/accounting/review'].includes(route)){
+    if(body.costCenter!==undefined||Array.isArray(body.items)&&body.items.some((it:any)=>it?.newCostCenterId!==undefined||it?.costCenter!==undefined))return {status:400,error:'مرکز هزینه فقط از مسیر ویرایش ردیف صریح قابل تغییر است.'};
+    if(body.newCostCenterId!==undefined){if(route!=='/review/row-action'||!['UPDATE_AMOUNT_COMMENT','UPDATE_AND_APPROVE'].includes(body.action)||!['PAYMENT','BATCH_ITEM'].includes(body.itemType))return {status:400,error:'مرکز هزینه فقط در ویرایش درخواست پرداخت مجاز است.'};if(!p.canEditAmount)return denied('مجوز ویرایش مشخصات کنترل مالی فعال نیست.');if(!Number.isSafeInteger(body.expectedVersion))return {status:400,error:'نسخهٔ معتبر ردیف برای ویرایش مرکز هزینه الزامی است.'};}
+  }
   if (['/approver/review','/accounting/review'].includes(route) && !['APPROVE','RETURN','RETURN_FOR_REVISION'].includes(body.action)) return denied('عملیات این مسیر بررسی معتبر نیست؛ برای رد درخواست از فرمان ردیفی فعلی استفاده کنید.');
   if (route === '/review/bulk-action' && !['APPROVE','RETURN_FOR_REVISION','REJECT'].includes(body.action)) return denied('عملیات گروهی بررسی معتبر نیست.');
   if(route.startsWith('/review/')&&['REJECT','CLOSE_REJECTED'].includes(body.action)){
@@ -166,7 +198,8 @@ export function authorizeRequest(req: Pick<Request, 'path' | 'method' | 'body'>,
 
   if (route.startsWith('/review/') && p.canAccessApproverCartable && p.canAccessAccountingCartable && !['APPROVER','ACCOUNTING'].includes(body.reviewStage)) return {status:409,error:'مرحله بررسی مشخص نیست؛ کارتابل را تازه‌سازی و دوباره اقدام کنید.'};
   const targets: Array<{ row: FinancialRow; item?: any; expectedVersion?: number;expectedStatus?:string }> = [];
-  if (body.requestId && ['/requests/edit-submitted','/requests/resubmit', '/review/row-action', '/approver/review', '/accounting/review'].includes(route)) {
+  if(route==='/requests/delete-submitted'&&(!['PAYMENT','ADVANCE','BATCH_ITEM'].includes(body.itemType)||typeof body.requestId!=='string'||!body.requestId||(body.itemType==='BATCH_ITEM'?typeof body.rowId!=='string'||!body.rowId:body.rowId!==undefined)||Object.keys(body).some(k=>!['requesterId','itemType','requestId','rowId','expectedVersion'].includes(k))))return {status:400,error:'هدف حذف درخواست معتبر نیست.'};
+  if (body.requestId && ['/requests/delete-submitted','/requests/edit-submitted','/requests/resubmit', '/review/row-action', '/approver/review', '/accounting/review'].includes(route)) {
     const legacyReview = ['/approver/review','/accounting/review'].includes(route);
     if (legacyReview && (body.itemType !== undefined || body.rowId !== undefined)) return {status:409,error:'نوع هدف بررسی ناسازگار است؛ کارتابل را تازه‌سازی کنید.'};
     const row = financialTarget(db, body.requestId, legacyReview ? body.requestType : body.itemType || body.requestType);
@@ -195,12 +228,13 @@ export function authorizeRequest(req: Pick<Request, 'path' | 'method' | 'body'>,
     if (!canSeeRequest(row, viewer, db, auth,undefined,company.financial)) return denied();
     const replacement=route==='/requests/edit-submitted'?body.changes?.amount:route==='/requests/resubmit'?body.amount:route==='/review/row-action'?body.newAmount:undefined;
     if(item&&replacement!==undefined&&!safeRialSum(row.items!.map(it=>it.id===item.id?replacement:it.approvedAmount??it.amount)))return {status:400,error:'جمع مبلغ گروه خارج از محدوده دقت مجاز است.'};
-    if (route==='/requests/edit-submitted') {
+    if (['/requests/edit-submitted','/requests/delete-submitted'].includes(route)) {
       if (row.requesterId!==viewer.id) return denied('فقط ثبت‌کننده می‌تواند درخواست را ویرایش کند.');
       const permitted=body.itemType==='BATCH_ITEM' ? ('batchType' in row && (row as any).batchType==='ADVANCE' ? p.canSubmitBatchAdvance : p.canSubmitBatchPayment) : body.itemType==='ADVANCE' ? p.canSubmitSingleAdvance : p.canSubmitSinglePayment;
       if (!permitted) return denied();
       if (body.changes?.attachments!==undefined&&!p.canViewAttachments) return denied('مجوز دسترسی به پیوست‌ها غیرفعال است.');
-      if (!canEditSubmittedRequest((item||row) as any,row.supervisorId,row.requesterId!)) return {status:409,error:'رسیدگی به این درخواست شروع شده است؛ ویرایش مستقیم دیگر مجاز نیست.'};
+      const deleting=route==='/requests/delete-submitted';
+      if (!(deleting?canDeleteSubmittedRequest:canEditSubmittedRequest)((item||row) as any,row.supervisorId,row.requesterId!) || deleting&&hasDeletionFinancialLinks(db,item?.id||row.id)) return {status:409,error:'رسیدگی به این درخواست شروع شده یا سابقهٔ مالی متصل دارد؛ حذف یا ویرایش مستقیم دیگر مجاز نیست.'};
       if (!Number.isSafeInteger(expectedVersion)||expectedVersion!==(item?.version||row.version||1)) return {status:409,error:'نسخه درخواست تغییر کرده است؛ ابتدا کارتابل را تازه‌سازی کنید.'};
     }
     if (['/treasury/execute-payment', '/treasury/move-pool'].includes(route)) {
@@ -306,11 +340,14 @@ export function scopeState(state: TreasuryDatabaseState, viewer: User, auth: Eff
     receiptArchives: !viewer.mustChangePassword && (p.canViewReceiptArchive || p.canViewAttachments)
       ? (full||financialSelections.allRelatedVisible(state.receiptArchives,ids)?state.receiptArchives:select(state.receiptArchives,receiptVisible)) : [],
     companyBankAccounts: !viewer.mustChangePassword && (full || p.canAccessTreasuryBankAccounts || p.canManageBankAccounts) ? (state.companyBankAccounts||[]).filter(r=>company.entity(r)) : [],
-    notifications: (state.notifications || []).filter(n => notificationVisible(n,viewer,state,id=>ids.has(id)||manualIds.has(id))),
+    notifications: (state.notifications || []).filter(n => notificationQueueAllowed(n,p)&&notificationVisible(n,viewer,state,id=>ids.has(id)||manualIds.has(id))),
     securityAuditLogs: !viewer.mustChangePassword && (full || p.canViewSecurityAudit&&company.all) ? state.securityAuditLogs : [],
     passwordRecoveryRequests: !viewer.mustChangePassword && (full || p.canManagePasswordRecovery) ? (state.passwordRecoveryRequests||[]).filter(r=>full||company.entity(state.users.find(u=>u.id===r.userId))) : [],
     smsLogs: !viewer.mustChangePassword && (full || p.canManageSmsGateway&&company.all) ? state.smsLogs : [],
     smsConfig: !viewer.mustChangePassword && (full || p.canManageSmsGateway&&company.all) ? state.smsConfig : undefined,
+    bankInquiryJobs:undefined,
+    bankInquiryOperations:undefined,
+    bankInquiryConfig:!viewer.mustChangePassword&&(full||p.canManageBankInquiry&&company.all)?state.bankInquiryConfig:undefined,
   };
   if (!p.canViewAttachments || viewer.mustChangePassword) {
     return withoutFiles(scoped);

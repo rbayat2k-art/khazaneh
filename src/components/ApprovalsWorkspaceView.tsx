@@ -1,4 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import {RialInput} from './RialInput';
+import {RequestSummaryHeaders,RequestSummaryRow,REQUEST_SUMMARY_COLUMN_COUNT} from './RequestSummaryTable';
+import {useRequestDetails} from './RequestDetails';
+import {requestRecordSortFields} from '../utils/request-details';
+import {requestCostCenters} from '../utils/request-cost-center';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {OfficialReviewNotes} from './OfficialReviewNotes';
 import {reviewEditError} from '../utils/review-edit';
 import {
@@ -30,6 +35,7 @@ import type {
   ApprovalCategoryTab,
   RequestStatus,
   ReviewRejection,
+  CostCenterItem,
 } from '../types/treasury';
 import {
   useSortableTable,
@@ -39,8 +45,10 @@ import {
 } from '../utils/sorting';
 import { SortableHeader } from './SortableHeader';
 import { ownsOpenRejection, rejectionDescription } from '../utils/review-rejection';
+import {requestTimeFields,type RequestTimeFields} from '../utils/record-time';
+import {RequestTimeHeaders,RequestTimeCells,RequestTimeHelp} from './RequestTimeColumns';
 
-export interface ApproverPendingRow {
+export interface ApproverPendingRow extends RequestTimeFields {
   uid: string; // unique key e.g. BATCH_ITEM:bat-101:item-1 or PAYMENT:pay-201
   itemType: 'BATCH_ITEM' | 'PAYMENT' | 'ADVANCE';
   subKind: 'PAYMENT' | 'ADVANCE'; // whether the underlying request is a payment order or salary advance
@@ -65,6 +73,7 @@ export interface ApproverPendingRow {
   accountOrCard?: string;
   iban?: string;
   description: string;
+  costCenter?:string;
   invoiceNumber?: string;
   status: RequestStatus;
   reviewRejection?: ReviewRejection;
@@ -118,6 +127,8 @@ interface ApprovalsWorkspaceViewProps {
   advanceRequests: AdvanceRequest[];
   paymentRequests: PaymentRequest[];
   batchPayments: BatchPaymentRequest[];
+  costCenters:CostCenterItem[];
+  companies:Array<{id:string;name:string}>;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   initialCategoryTab?: ApprovalCategoryTab;
   onCategoryTabChange?: (tab: ApprovalCategoryTab) => void;
@@ -134,6 +145,7 @@ interface ApprovalsWorkspaceViewProps {
     returnReason?: string;
     newAmount?: number;
     amountChangeReason?: string;
+    newCostCenterId?:string;
   }) => Promise<boolean>;
   onBulkReviewAction: (payload: {
     reviewerId: string;
@@ -162,12 +174,15 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
   advanceRequests,
   paymentRequests,
   batchPayments,
+  costCenters,
+  companies,
   searchInputRef,
   initialCategoryTab = 'PENDING',
   onCategoryTabChange,
   onRowReviewAction,
   onBulkReviewAction,
 }) => {
+  const requestDetails=useRequestDetails();
   const [categoryTab, setCategoryTab] = useState<ApprovalCategoryTab>(initialCategoryTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<
@@ -185,9 +200,14 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
   // Edit Amount & Comment Modal State
   const [editingRow, setEditingRow] = useState<ApproverPendingRow | null>(null);
   const [editAmountVal, setEditAmountVal] = useState<string>('');
+  const editAmountInput=useRef<HTMLInputElement>(null);
   const [editAmountReason, setEditAmountReason] = useState<string>('');
   const [editCommentText, setEditCommentText] = useState<string>('');
   const [editError,setEditError]=useState('');
+  const [editCostCenterId,setEditCostCenterId]=useState('');
+  const editingRecord=editingRow?requestDetails.resolve({kind:editingRow.itemType,id:editingRow.requestId,rowId:editingRow.rowId}):null;
+  const editingCenters=editingRecord?requestCostCenters(costCenters,companies,editingRecord.parent,editingRecord.company):[];
+  const canEdit=currentUser.role==='ADMIN'||!!currentUser.effectivePermissions?.canEditAmount;
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Return For Revision Modal State
@@ -220,7 +240,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentFile | null>(null);
 
   // Row Full Audit History Modal
-  const [historyModalRow, setHistoryModalRow] = useState<ApproverPendingRow | null>(null);
+
 
   useEffect(() => {
     if (initialCategoryTab) {
@@ -326,7 +346,10 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
       treasuryStageStatus = `پرداخت قطعی (${paidBankName || 'خزانه'})`;
       nextStageAssignee = 'تکمیل و تسویه شده';
     } else if (status === 'Needs_Revision') {
-      if (returnedByRole === 'ACCOUNTING' || approverNote) {
+      if (returnedByRole === 'TREASURY') {
+        supervisorStageStatus = 'تأیید سرپرست محفوظ است';
+        accountingStageStatus = 'تأیید مالی محفوظ است';
+      } else if (returnedByRole === 'ACCOUNTING' || approverNote) {
         supervisorStageStatus = 'تأیید قبلی (نیازمند بررسی مجدد پس از اصلاح)';
         accountingStageStatus = 'برگشت داده شده برای اصلاح';
       } else {
@@ -334,7 +357,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         accountingStageStatus = 'متوقف تا اصلاح متقاضی';
       }
       treasuryStageStatus = 'متوقف';
-      nextStageAssignee = `${requesterName} (متقاضی — جهت اصلاح و ارسال مجدد)`;
+      nextStageAssignee = returnedByRole==='TREASURY'?'گیرندهٔ منتخب خزانه — اصلاح فنی و بازگشت مستقیم به خزانه':`${requesterName} (متقاضی — جهت اصلاح و ارسال مجدد)`;
     } else if (status === 'Rejected' || status === 'Closed') {
       supervisorStageStatus = params.reviewRejection?.stage === 'ACCOUNTING' ? 'تأیید مرحله سرپرست' : 'رد درخواست';
       accountingStageStatus = params.reviewRejection?.stage === 'ACCOUNTING' ? 'رد درخواست' : 'متوقف';
@@ -442,7 +465,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         1;
       const isInvalidated =
         Boolean(latestApp.invalidatedByVersion) ||
-        status === 'Needs_Revision' ||
+        (status === 'Needs_Revision' && returnedByRole !== 'TREASURY') ||
         (mode === 'APPROVER' && status === 'Pending_Approver' && version > appVer) ||
         (mode === 'ACCOUNTING' &&
           (status === 'Pending_Approver' || status === 'Pending_Accounting') &&
@@ -473,7 +496,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
       if (isAssignedSupervisor && (passedSupervisorStage || Boolean(approverNote))) {
         const appVer = approverApprovedVersion ?? version;
         const isInvalidated =
-          status === 'Needs_Revision' ||
+          (status === 'Needs_Revision' && returnedByRole !== 'TREASURY') ||
           (status === 'Pending_Approver' && version > appVer);
         myApprovedDecision = {
           decidedAt: approverDecidedAt || 'ثبت در مرحله سرپرست',
@@ -491,7 +514,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
       if (isAssignedAccounting && (passedAccountingStage || Boolean(accountingNote))) {
         const appVer = accountingApprovedVersion ?? version;
         const isInvalidated =
-          status === 'Needs_Revision' ||
+          (status === 'Needs_Revision' && returnedByRole !== 'TREASURY') ||
           status === 'Pending_Approver' ||
           (status === 'Pending_Accounting' && version > appVer);
         myApprovedDecision = {
@@ -628,6 +651,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
 
         list.push({
           uid: `BATCH_ITEM:${b.id}:${it.id}`,
+          ...requestTimeFields(b,[it]),
           itemType: 'BATCH_ITEM',
           subKind: b.batchType === 'ADVANCE' ? 'ADVANCE' : 'PAYMENT',
           isGroupRow: true,
@@ -652,6 +676,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
           iban: it.iban,
           description: it.description,
           invoiceNumber: it.invoiceNumber,
+          costCenter:it.costCenter,
           status: itemStatus,
           reviewRejection: it.reviewRejection,
           version: ver,
@@ -745,12 +770,13 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
 
       list.push({
         uid: `PAYMENT:${p.id}`,
+        ...requestTimeFields(p),
         itemType: 'PAYMENT',
         subKind: 'PAYMENT',
         isGroupRow: false,
         requestId: p.id,
         trackingCode: p.trackingCode,
-        typeLabel: 'دستور پرداخت تکی',
+        typeLabel: p.externalOrder?'دستور خارج سامانه':'دستور پرداخت تکی',
         payeeName: p.payeeName,
         requesterId: p.requesterId,
         requesterName: p.requesterName,
@@ -764,8 +790,9 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         destinationBank: p.bankName,
         accountOrCard: p.accountOrCard,
         iban: p.iban,
-        description: p.description,
+        description: p.externalOrder?`${p.description}\nدستوردهنده خارج سامانه: ${p.externalOrder.orderedBy}`:p.description,
         invoiceNumber: p.invoiceNumber,
+        costCenter:p.costCenter,
         status: p.status,
         reviewRejection: p.reviewRejection,
         version: ver,
@@ -858,6 +885,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
 
       list.push({
         uid: `ADVANCE:${a.id}`,
+        ...requestTimeFields(a),
         itemType: 'ADVANCE',
         subKind: 'ADVANCE',
         isGroupRow: false,
@@ -994,7 +1022,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
   }, [activeCategoryRows, typeFilter, normalizedQuery]);
 
   const { sortedItems: sortedRows, sortConfig, handleSort } =
-    useSortableTable<ApproverPendingRow>(filteredRows, 'amount', 'numeric', 'desc');
+    useSortableTable<ApproverPendingRow>(filteredRows.map(r=>({...r,...requestRecordSortFields(requestDetails.resolve({kind:r.itemType,id:r.requestId,rowId:r.rowId}))})), 'amount', 'numeric', 'desc');
 
   // Multi-select calculations (only for PENDING tab)
   const selectedRows = useMemo(() => {
@@ -1159,10 +1187,12 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
     setEditAmountReason('');
     setEditCommentText('');
     setEditError('');
+    setEditCostCenterId('');
   };
 
   const handleSaveEditRow = async (andApprove: boolean) => {
     if (!editingRow) return;
+    if(editAmountInput.current&&!editAmountInput.current.reportValidity())return;
     const error=reviewEditError('UPDATE_AMOUNT_COMMENT',Number(editAmountVal),editAmountReason,editCommentText);
     if(error){setEditError(error);return;}
     setIsSavingEdit(true);
@@ -1179,6 +1209,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         action: andApprove ? 'UPDATE_AND_APPROVE' : 'UPDATE_AMOUNT_COMMENT',
         newAmount: numVal,
         amountChangeReason: editAmountReason,
+        ...(editCostCenterId?{newCostCenterId:editCostCenterId}:{}),
         comment: editCommentText,
       });
       if (ok) {
@@ -1430,77 +1461,14 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
           </span>
         </div>
 
+        <RequestTimeHelp/>
         <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
-          <table className="w-full min-w-[960px] lg:min-w-0 table-auto text-right border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-100/90 text-slate-700">
-                {categoryTab === 'PENDING' && (
-                  <th className="px-2 py-2.5 w-9 text-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedUids.length === sortedRows.length && sortedRows.length > 0}
-                      onChange={handleToggleSelectAll}
-                      className="cursor-pointer"
-                    />
-                  </th>
-                )}
-                <th className="px-2 py-2.5 w-9 text-center font-mono">#</th>
-                <SortableHeader
-                  label="کد / نسخه"
-                  field="trackingCode"
-                  type="text"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
-                <SortableHeader
-                  label="نوع درخواست"
-                  field="typeLabel"
-                  type="text"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
-                <SortableHeader
-                  label="ذینفع / نیرو"
-                  field="payeeName"
-                  type="text"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
-                <SortableHeader
-                  label="مبلغ (ریال)"
-                  field="amount"
-                  type="numeric"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
-                <SortableHeader
-                  label="درخواست‌کننده"
-                  field="requesterName"
-                  type="text"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
-                {categoryTab === 'PENDING' ? (
-                  <>
-                    <th className="px-2.5 py-2.5">حساب مقصد</th>
-                    <th className="px-2.5 py-2.5">شرح و توضیحات</th>
-                  </>
-                ) : (
-                  <>
-                    <th className="px-2.5 py-2.5">سابقه تصمیم من و یادداشت/علت</th>
-                    <th className="px-2.5 py-2.5">وضعیت مستقل مراحل و مسئول بعدی</th>
-                  </>
-                )}
-                <th className="px-2.5 py-2.5 text-center">مدارک</th>
-                <th className="px-2.5 py-2.5 text-center">
-                  {categoryTab === 'PENDING' || categoryTab === 'REJECTED_BY_ME' ? 'اقدام و تاریخچه' : 'تاریخچه'}
-                </th>
-              </tr>
-            </thead>
+          <table className="request-record-table request-summary-table w-full text-right border-collapse text-xs">
+<thead><RequestSummaryHeaders sortConfig={sortConfig} onSort={handleSort} selection={categoryTab==='PENDING'?<input type="checkbox" aria-label="انتخاب همه ردیف‌ها" checked={selectedUids.length===sortedRows.length&&sortedRows.length>0} onChange={handleToggleSelectAll}/>:undefined}/></thead>
             <tbody className="divide-y divide-slate-200">
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="p-8 text-center text-slate-500">
+                  <td colSpan={REQUEST_SUMMARY_COLUMN_COUNT+(categoryTab==='PENDING'?1:0)} className="p-8 text-center text-slate-500">
                     {categoryTab === 'PENDING' && 'هیچ موردی در صف انتظار تأیید شما وجود ندارد.'}
                     {categoryTab === 'APPROVED_BY_ME' &&
                       'هنوز هیچ ردیفی در این دسته‌بندی توسط شما تأیید نشده است.'}
@@ -1519,204 +1487,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
                     row.approvedAmount && row.approvedAmount !== row.initialAmount;
 
                   return (
-                    <tr
-                      key={row.uid}
-                      className={
-                        isChecked
-                          ? 'bg-sky-50/70 hover:bg-sky-50'
-                          : 'hover:bg-slate-50/70'
-                      }
-                    >
-                      {categoryTab === 'PENDING' && (
-                        <td className="px-2 py-2.5 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => handleToggleSelectRow(row.uid)}
-                            className="cursor-pointer"
-                          />
-                        </td>
-                      )}
-
-                      <td className="px-2 py-2.5 text-center font-mono text-slate-500">
-                        {idx + 1}
-                      </td>
-
-                      <td className="px-2.5 py-2.5 break-words">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-mono-num font-bold text-slate-900">
-                            {row.trackingCode}
-                          </span>
-                          {row.isResubmitted && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                              <RefreshCw className="w-2.5 h-2.5" />
-                              <span>ارسال مجدد (نسخه {row.version})</span>
-                            </span>
-                          )}
-                        </div>
-                        {row.parentBatchTitle && (
-                          <div className="text-[10px] text-slate-500 break-words mt-0.5">
-                            از لیست: {row.parentBatchTitle}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-2.5 py-2.5">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                            row.subKind === 'ADVANCE'
-                              ? 'bg-purple-50 text-purple-800 border border-purple-200'
-                              : 'bg-slate-100 text-slate-800'
-                          }`}
-                        >
-                          {row.typeLabel}
-                        </span>
-                      </td>
-
-                      <td className="px-2.5 py-2.5 font-semibold text-slate-900 break-words">
-                        {row.payeeName}
-                      </td>
-
-                      <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-950">
-                        <div>{formatRial(row.approvedAmount ?? row.amount)}</div>
-                        {hasEditedAmount && (
-                          <div className="text-[10px] text-slate-400 font-normal line-through">
-                            اولیه: {formatRial(row.initialAmount)}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                        <div className="font-medium text-slate-900">{row.requesterName}</div>
-                        <div className="text-[10px] text-slate-500">{row.department}</div>
-                      </td>
-
-                      {categoryTab === 'PENDING' ? (
-                        <>
-                          <td className="px-2.5 py-2.5 break-words">
-                            <div className="font-medium text-slate-800">{row.destinationBank}</div>
-                            {row.accountOrCard && (
-                              <div className="font-mono-num text-[11px] text-slate-600 break-all">
-                                کارت/حساب: {row.accountOrCard}
-                              </div>
-                            )}
-                            {row.iban && (
-                              <div className="font-mono-num text-[10px] text-slate-500 break-all">
-                                {row.iban}
-                              </div>
-                            )}
-                          </td>
-
-                          <td className="px-2.5 py-2.5 text-slate-600 break-words">
-                            <div>{row.description}</div>
-                            <OfficialReviewNotes row={row}/>
-                            {row.isResubmitted && row.resubmittedAt && (
-                              <div className="text-[10px] text-amber-800 mt-0.5 font-mono-num">
-                                زمان ارسال مجدد: {row.resubmittedAt}
-                              </div>
-                            )}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          {/* Decision History Column */}
-                          <td className="px-2.5 py-2.5 break-words">
-                            {rejectionDescription(row) && <div className="text-[11px] text-rose-800 break-words mb-1">{rejectionDescription(row)}</div>}
-                            {categoryTab === 'APPROVED_BY_ME' && row.myApprovedDecision ? (
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold text-[10px]">
-                                    تأیید شده در نسخه {row.myApprovedDecision.approvedVersion}
-                                  </span>
-                                  <span className="font-mono-num text-[10px] text-slate-500">
-                                    {row.myApprovedDecision.decidedAt}
-                                  </span>
-                                </div>
-                                {row.myApprovedDecision.isInvalidatedByLaterRevision && (
-                                  <div className="px-2 py-1 rounded bg-amber-50 border border-amber-300 text-amber-900 text-[10px] font-semibold">
-                                    تأیید قدیمی به علت اصلاح و تغییر به نسخه {row.version} نامعتبر شده و نیازمند بررسی مجدد است (مجوز پرداخت نیست).
-                                  </div>
-                                )}
-                                <div className="text-[11px] text-slate-700 break-words">
-                                  یادداشت: {row.myApprovedDecision.note}
-                                </div>
-                              </div>
-                            ) : categoryTab === 'RETURNED_BY_ME' && row.myReturnedDecision ? (
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-900 font-bold text-[10px]">
-                                    برگشت داده شده برای اصلاح
-                                  </span>
-                                  <span className="font-mono-num text-[10px] text-slate-500">
-                                    {row.myReturnedDecision.decidedAt}
-                                  </span>
-                                </div>
-                                <div className="text-[11px] text-rose-800 font-medium break-words">
-                                  علت برگشت: {row.myReturnedDecision.reason}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-bold text-[10px]">
-                                    {row.myLastActionSummary || 'ثبت در تاریخچه'}
-                                  </span>
-                                  {row.myLastActionAt && (
-                                    <span className="font-mono-num text-[10px] text-slate-500">
-                                      {row.myLastActionAt}
-                                    </span>
-                                  )}
-                                </div>
-                                {row.myLastNoteOrReason && (
-                                  <div className="text-[11px] text-slate-700 break-words">
-                                    توضیح/علت: {row.myLastNoteOrReason}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </td>
-
-                          {/* Independent Stage Statuses & Next Assignee Column */}
-                          <td className="px-2.5 py-2.5 break-words">
-                            <div className="space-y-1 text-[11px]">
-                              <div>
-                                <span className="text-slate-500">وضعیت کلی فعلی:</span>{' '}
-                                <strong className="text-slate-900 font-bold">
-                                  {getStatusLabel(row.status)}
-                                </strong>
-                              </div>
-                              <div className="text-[10px] text-slate-600 flex flex-wrap gap-x-2">
-                                <span>سرپرست: {row.supervisorStageStatus}</span>
-                                <span>|</span>
-                                <span>حسابداری: {row.accountingStageStatus}</span>
-                                <span>|</span>
-                                <span>خزانه: {row.treasuryStageStatus}</span>
-                              </div>
-                              <div className="text-[10px] text-indigo-800 font-semibold flex items-center gap-1">
-                                <UserCheck className="w-3 h-3 shrink-0" />
-                                <span>مسئول فعلی / مرحله بعد: {row.nextStageAssignee}</span>
-                              </div>
-                            </div>
-                          </td>
-                        </>
-                      )}
-
-                      <td className="px-2.5 py-2.5 text-center">
-                        {row.attachments && row.attachments.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => setPreviewAttachment(row.attachments![0])}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded text-xs cursor-pointer"
-                          >
-                            <Paperclip className="w-3 h-3" />
-                            <span>{row.attachments.length} فایل</span>
-                          </button>
-                        ) : (
-                          <span className="text-slate-400 text-xs">—</span>
-                        )}
-                      </td>
-
-                      <td className="px-2.5 py-2.5 text-center">
+                    <RequestSummaryRow key={row.uid} target={{kind:row.itemType,id:row.requestId,rowId:row.rowId}} index={idx+1} selection={categoryTab==='PENDING'?<input type="checkbox" aria-label="انتخاب ردیف" checked={isChecked} onChange={()=>handleToggleSelectRow(row.uid)}/>:undefined} className={isChecked?'bg-sky-50/70':''}>
                         <div className="flex flex-wrap items-center justify-center gap-1">
                           {categoryTab === 'PENDING' && (
                             <>
@@ -1735,7 +1506,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
                               {/* Edit Amount & Comment */}
                               <button
                                 type="button"
-                                disabled={isBusy}
+                                disabled={isBusy || !canEdit}
                                 onClick={() => handleOpenEditModal(row)}
                                 title="ویرایش مبلغ و ثبت یادداشت"
                                 className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded cursor-pointer disabled:opacity-50"
@@ -1769,7 +1540,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
                           {/* View Full Row History Button */}
                           <button
                             type="button"
-                            onClick={() => setHistoryModalRow(row)}
+                            onClick={() => requestDetails.open({kind:row.itemType,id:row.requestId,rowId:row.rowId})}
                             title="مشاهده تاریخچه کامل تصمیمات و نسخه‌های این ردیف"
                             className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded cursor-pointer"
                           >
@@ -1777,8 +1548,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
                             <span>تاریخچه</span>
                           </button>
                         </div>
-                      </td>
-                    </tr>
+                      </RequestSummaryRow>
                   );
                 })
               )}
@@ -1799,7 +1569,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">
-                  ویرایش مبلغ و ثبت کامنت تأییدکننده
+                  ویرایش مبلغ، مرکز هزینه و یادداشت رسمی
                 </h3>
                 <p className="text-xs text-slate-500">
                   {editingRow.trackingCode} — {editingRow.payeeName}
@@ -1830,14 +1600,19 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
                 <div>
                   <span className="text-slate-500">شرح ردیف:</span> {editingRow.description}
                 </div>
+                <div><span className="text-slate-500">مرکز هزینهٔ ثبت‌شده:</span> <strong>{editingRecord?.costCenter||'برای این فرم ثبت نشده'}</strong></div>
               </div>
+
+              {editingRow.itemType!=='ADVANCE'&&<label className="block text-xs font-semibold text-slate-700 space-y-1">مرکز هزینه
+                <select aria-label="مرکز هزینه" disabled={isSavingEdit||!canEdit} value={editCostCenterId} onChange={e=>setEditCostCenterId(e.target.value)} className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"><option value="">بدون تغییر — {editingRecord?.costCenter||'ثبت نشده'}</option>{editingCenters.map(c=><option key={c.id} value={c.id}>{c.name}{c.code?' — '+c.code:''}</option>)}</select>
+                <span className="block font-normal text-slate-500">فقط مراکز فعال شرکت همین درخواست؛ تغییر با دلیل در سابقهٔ رسمی ثبت می‌شود.</span>
+              </label>}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   مبلغ مصوب جدید (ریال):
                 </label>
-                <input
-                  type="number"
+                <RialInput ref={editAmountInput}
                   min={1000}
                   aria-label="مبلغ مصوب جدید (ریال)"
                   disabled={isSavingEdit}
@@ -1852,7 +1627,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  دلیل تغییر مبلغ (الزامی):
+                  دلیل ویرایش مبلغ یا مرکز هزینه (الزامی):
                 </label>
                 <input
                   type="text"
@@ -1896,7 +1671,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={isSavingEdit || !editAmountReason.trim()}
+                  disabled={isSavingEdit || !canEdit || !editAmountReason.trim()}
                   onClick={() => handleSaveEditRow(false)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg cursor-pointer disabled:opacity-50"
                 >
@@ -1906,7 +1681,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
 
                 <button
                   type="button"
-                  disabled={isSavingEdit || !editAmountReason.trim()}
+                  disabled={isSavingEdit || !canEdit || !editAmountReason.trim()}
                   onClick={() => handleSaveEditRow(true)}
                   className="inline-flex items-center gap-1 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg cursor-pointer disabled:opacity-50"
                 >
@@ -1987,124 +1762,6 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
               >
                 <AlertCircle className="w-3.5 h-3.5" />
                 <span>{isReturning ? 'در حال ثبت…' : reasonAction === 'RETURN_FOR_REVISION' ? 'ثبت برگشت جهت اصلاح' : `ثبت ${reasonTitle}`}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 6. Modal: Row Complete History & Independent Stages */}
-      {historyModalRow && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-xl text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <History className="w-4 h-4 text-indigo-700" />
-                  <span>تاریخچه تصمیمات و وضعیت مراحل — {historyModalRow.trackingCode}</span>
-                </h3>
-                <p className="text-slate-500 mt-0.5">
-                  ذینفع: {historyModalRow.payeeName} | متقاضی: {historyModalRow.requesterName} | نسخه فعلی: {historyModalRow.version}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setHistoryModalRow(null)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Independent Stage Status Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 block">۱. وضعیت تأیید سرپرست:</span>
-                <strong className="text-slate-900 block">{historyModalRow.supervisorStageStatus}</strong>
-                {historyModalRow.approverNote && (
-                  <span className="text-[10px] text-slate-600 block">
-                    یادداشت: {historyModalRow.approverNote}
-                  </span>
-                )}
-              </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 block">۲. وضعیت تأیید حسابداری:</span>
-                <strong className="text-slate-900 block">{historyModalRow.accountingStageStatus}</strong>
-                {historyModalRow.accountingNote && (
-                  <span className="text-[10px] text-slate-600 block">
-                    یادداشت: {historyModalRow.accountingNote}
-                  </span>
-                )}
-              </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 block">۳. وضعیت خزانه و پرداخت:</span>
-                <strong className="text-slate-900 block">{historyModalRow.treasuryStageStatus}</strong>
-                <span className="text-[10px] text-indigo-800 block font-semibold">
-                  مسئول مرحله: {historyModalRow.nextStageAssignee}
-                </span>
-              </div>
-            </div>
-
-            {/* Audit Trail */}
-            <div className="space-y-2">
-              <h4 className="font-bold text-slate-900">ریز وقایع و تصمیمات ثبت‌شده در سرور:</h4>
-              {(!historyModalRow.auditHistory || historyModalRow.auditHistory.length === 0) ? (
-                <div className="p-4 text-center text-slate-500 bg-slate-50 rounded-lg border border-slate-200">
-                  سابقه‌ای ثبت نشده است.
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {historyModalRow.auditHistory.map((aud, i) => (
-                    <div
-                      key={aud.id || i}
-                      className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900">{aud.action}</span>
-                        <span className="font-mono-num text-[11px] text-slate-500">
-                          {aud.changedAt}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-600">
-                        اقدام‌کننده: <strong className="text-slate-800">{aud.changedBy}</strong>
-                        {aud.version ? ` (نسخه ${aud.version})` : ''}
-                      </div>
-                      {aud.invalidatedByVersion && (
-                        <div className="text-[11px] text-amber-800 font-semibold">
-                          توجه: این تأیید به علت اصلاح اطلاعات در نسخه {aud.invalidatedByVersion} نامعتبر شده و نیازمند تأیید مجدد است.
-                        </div>
-                      )}
-                      {aud.reason && (
-                        <div className="text-[11px] text-rose-800">علت: {aud.reason}</div>
-                      )}
-                      {aud.comment && (
-                        <div className="text-[11px] text-slate-700">توضیح: {aud.comment}</div>
-                      )}
-                      {aud.newAmount !== undefined && (
-                        <div className="text-[11px] font-mono-num text-emerald-800">
-                          مبلغ ثبت‌شده: {formatRial(aud.newAmount)} ریال
-                          {aud.previousAmount !== undefined
-                            ? ` (قبلی: ${formatRial(aud.previousAmount)} ریال)`
-                            : ''}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setHistoryModalRow(null)}
-                className="px-4 py-1.5 bg-slate-900 text-white font-semibold rounded-lg cursor-pointer"
-              >
-                بستن تاریخچه
               </button>
             </div>
           </div>

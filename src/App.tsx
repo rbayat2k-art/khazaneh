@@ -1,4 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {RequestDetailsProvider} from './components/RequestDetails';
+import {notificationAddressed} from './utils/notification-audience';
+const FinancialReports=React.lazy(()=>import('./components/FinancialReports').then(m=>({default:m.FinancialReports})));
+import type {InquiryRequest} from './components/BankInquiryPanel';
+import {isMyRevision,type TreasuryReturn} from './utils/treasury-correction';
 import {
   Keyboard,
   LogOut,
@@ -41,6 +46,7 @@ import type {
 } from './types/treasury';
 import { normalizeRolePermissionSet } from './types/treasury';
 import type { SubmittedRequestEdit } from './utils/request-edit';
+import type {SubmittedRequestDelete} from './utils/request-deletion';
 import type {ImportBankAccounts} from './components/BankAccountImportDialog';
 import { formatRial, getRoleLabel } from './utils/sorting';
 import {createStateFetch} from './utils/state-sync';
@@ -63,6 +69,7 @@ const EmployeeRequestsView = React.lazy(() => import('./components/EmployeeReque
 const ApprovalsWorkspaceView = React.lazy(() => import('./components/ApprovalsWorkspaceView').then(m => ({ default: m.ApprovalsWorkspaceView })));
 const TreasuryWorkspaceView = React.lazy(() => import('./components/TreasuryWorkspaceView').then(m => ({ default: m.TreasuryWorkspaceView })));
 const SettingsView = React.lazy(() => import('./components/SettingsView').then(m => ({ default: m.SettingsView })));
+const BankInquiryPanel=React.lazy(()=>import('./components/BankInquiryPanel').then(m=>({default:m.BankInquiryPanel})));
 
 const AUTH_STORAGE_KEY = 'treasury_auth_user_session';
 const TOKEN_STORAGE_KEY = 'treasury_auth_session_token';
@@ -113,7 +120,11 @@ export default function App() {
   const [forcedPassLoading, setForcedPassLoading] = useState(false);
 
   const [activeSection, setActiveSection] = useState<MainSection>('REQUESTER');
-  const [activeReceiptModal, setActiveReceiptModal] = useState<ReceiptArchive | null>(null);
+  const receiptAuthority=JSON.stringify([currentUser?.id,currentUser?.role,currentUser?.additionalRoles,currentUser?.company,currentUser?.department,currentUser?.effectivePermissions,currentUser?.effectiveAccessScope]);
+  const [receiptSelection,setReceiptSelection]=useState<{id:string;authority:string}|null>(null);
+  const receiptPermissions=currentUser?normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role):null;
+  const activeReceiptModal=currentUser&&!currentUser.mustChangePassword&&(receiptPermissions?.canViewAttachments||receiptPermissions?.canViewReceiptArchive)&&receiptSelection?.authority===receiptAuthority?dbState?.receiptArchives.find(r=>r.id===receiptSelection.id)||null:null;
+  const setActiveReceiptModal=useCallback((receipt:ReceiptArchive|null)=>setReceiptSelection(receipt?{id:receipt.id,authority:receiptAuthority}:null),[receiptAuthority]);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -386,13 +397,7 @@ export default function App() {
   // Filter notifications relevant to current user & role
   const visibleNotifications = useMemo<AppNotification[]>(() => {
     if (!dbState?.notifications || !currentUser) return [];
-    return dbState.notifications.filter((n) => {
-      if (currentUser.role === 'ADMIN') return true;
-      if (n.recipientUserId && n.recipientUserId === currentUser.id) return true;
-      if (n.recipientRole && n.recipientRole === currentUser.role) return true;
-      if (n.actorName === currentUser.name) return true;
-      return false;
-    });
+    return dbState.notifications.filter(n=>notificationAddressed(n,currentUser));
   }, [dbState?.notifications, currentUser]);
 
   const unreadNotificationsCount = useMemo(() => {
@@ -446,15 +451,13 @@ export default function App() {
     const isMine = (reqId: string) => currentUser.role === 'ADMIN' || reqId === currentUser.id;
     let needsRevision = 0;
     dbState.batchPayments.forEach((b) => {
-      if (isMine(b.requesterId)) {
-        needsRevision += b.items.filter((it) => it.status === 'Needs_Revision').length;
-      }
+      needsRevision += b.items.filter(it=>isMyRevision(it,b.requesterId,currentUser.id,currentUser.role==='ADMIN')).length;
     });
     dbState.paymentRequests.forEach((p) => {
-      if (isMine(p.requesterId) && p.status === 'Needs_Revision') needsRevision++;
+      if (isMyRevision(p,p.requesterId,currentUser.id,currentUser.role==='ADMIN')) needsRevision++;
     });
     dbState.advanceRequests.forEach((a) => {
-      if (isMine(a.requesterId) && a.status === 'Needs_Revision') needsRevision++;
+      if (isMyRevision(a,a.requesterId,currentUser.id,currentUser.role==='ADMIN')) needsRevision++;
     });
 
     let pendingApprover = 0;
@@ -571,6 +574,7 @@ export default function App() {
             badge: 'اطلاعات پایه',
           };
         }
+        if(adminSubTab==='BANK_INQUIRY')return {title:'اطلاعات پایه: استعلام کارت و شبا',subtitle:'تنظیم سرویس، شرکت‌های مجاز و سقف مصرف',badge:'اطلاعات پایه'};
         if (adminSubTab === 'SMS_GATEWAY') {
           return {
             title: 'اطلاعات پایه: سامانه پیامک و اطلاع‌رسانی (SMS Gateway)',
@@ -624,6 +628,8 @@ export default function App() {
           badge: 'بررسی مالی',
         };
       case 'SETTINGS':
+      case 'REPORTS':
+        if(activeSection==='REPORTS')return {title:'گزارش جامع درخواست‌ها و پرداخت‌ها',subtitle:'فیلتر تاریخ ثبت یا پرداخت و خروجی جامع در شرکت‌های مجاز',badge:'گزارش‌گیری'};
         return {
           title: 'تنظیمات کارتابل، امنیت و حساب کاربری',
           subtitle: 'مدیریت رمز عبور، احراز هویت دومرحله‌ای، نشست‌های فعال و ترجیحات کارتابل متناسب با نقش سازمانی',
@@ -847,6 +853,16 @@ export default function App() {
     } catch {
       return { ok: false, error: 'خطا در ارتباط با سرور' };
     }
+  };
+
+  const handleBankInquiry:InquiryRequest=async(method,path,body)=>{
+    const token=sessionTokenRef.current,actor=currentUserRef.current?.id;
+    if(!token||!path.startsWith('/api/bank-inquiry/'))return {ok:false,error:'نشست معتبر نیست.'};
+    try{const response=await fetch(path,{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},...(method==='POST'?{body:JSON.stringify(body||{})}:{})}),data=await response.json();
+      if(token!==sessionTokenRef.current||actor!==currentUserRef.current?.id)return {ok:false,ambiguous:true,error:'نشست تغییر کرده؛ نتیجه از سرور بررسی شود.'};
+      if(!response.ok||data.ok===false)return {ok:false,error:data.error||data.code||'عملیات استعلام انجام نشد.',status:response.status,ambiguous:response.status>=500,data};
+      if(method==='POST')await fetchState();return {ok:true,data,status:response.status};
+    }catch{return {ok:false,ambiguous:method==='POST',error:'پاسخ دریافت نشد؛ شناسه استعلام باید حفظ و نتیجه از سرور بررسی شود.'};}
   };
 
   // Master Data & SMS Gateway Admin Handlers
@@ -1181,6 +1197,7 @@ export default function App() {
     returnReason?: string;
     newAmount?: number;
     amountChangeReason?: string;
+    newCostCenterId?:string;
   }): Promise<boolean> => {
     try {
       const res = await fetch('/api/review/row-action', {
@@ -1266,7 +1283,13 @@ export default function App() {
     }catch{return {ok:false,error:'ارتباط برقرار نشد؛ ابتدا وضعیت درخواست را بررسی کنید، سپس دوباره تلاش کنید.'};}
   };
 
+  const handleDeleteSubmittedRequest=async(payload:SubmittedRequestDelete):Promise<{ok:boolean;error?:string}>=>{
+    try{const response=await fetch('/api/requests/delete-submitted',{method:'POST',headers:authHeaders,body:JSON.stringify(payload)});const result=await response.json();if(!response.ok||result.error)return {ok:false,error:result.error||'حذف درخواست ثبت نشد.'};if(result.state)setDbState(result.state);showToast('درخواست از فهرست‌ها و صف‌ها حذف شد؛ سابقه در سیستم محفوظ است.');return {ok:true};}
+    catch{return {ok:false,error:'ارتباط برقرار نشد؛ پیش از تلاش دوباره، وضعیت درخواست را تازه‌سازی و بررسی کنید.'};}
+  };
+
   const handleResubmitRequest = async (payload: {
+    expectedVersion?:number;
     requesterId: string;
     itemType: 'BATCH_ITEM' | 'PAYMENT' | 'ADVANCE';
     requestId: string;
@@ -1291,7 +1314,7 @@ export default function App() {
       }
       if (data.state) {
         setDbState(data.state);
-        showToast('درخواست اصلاح شد و مجدداً به صف تایید ارسال گردید.');
+        showToast(data.returnedToTreasury?'اصلاح فنی ثبت شد و مستقیم به صف خزانه بازگشت؛ تأییدها محفوظ است.':'درخواست اصلاح شد و مجدداً به صف تایید ارسال گردید.');
       }
       return true;
     } catch {
@@ -1300,6 +1323,10 @@ export default function App() {
     }
   };
 
+  const handleTreasuryReturn=async(payload:TreasuryReturn):Promise<{ok:boolean;error?:string}>=>{
+    try{const response=await fetch('/api/treasury/return-for-correction',{method:'POST',headers:authHeaders,body:JSON.stringify(payload)}),data=await response.json();if(!response.ok||data.error)return {ok:false,error:data.error||'عودت ثبت نشد.'};if(data.state)setDbState(data.state);showToast('برای اصلاح فنی ارجاع شد؛ پرداخت ردیف تا بازگشت از اصلاح متوقف است.');return {ok:true};}
+    catch{return {ok:false,error:'پاسخ ثبت دریافت نشد؛ ابتدا فهرست را تازه‌سازی و وضعیت را بررسی کنید.'};}
+  };
   const handleMoveTreasuryPool = async (payload: {
     items: Array<{ id: string; type: 'ADVANCE' | 'PAYMENT' | 'BATCH' | 'BATCH_ITEM'; batchId?: string }>;
     targetPool: 'IN_PAYMENT' | 'QUEUE';
@@ -1380,36 +1407,27 @@ export default function App() {
     }
   };
 
-  const handleCreateManualPayment = async (payload: {
-    amount: number;
-    payee: string;
-    description: string;
-    sourceBankAccountId: string;
-    bankName: string;
-    date: string;
-    orderedBy: string;
-    createdById: string;
-    bankRefNumber: string;
-    receiptFileUrl?: string;
-    receiptFileName?: string;
-  }): Promise<{ ok: boolean; error?: string }> => {
+  const handleCreateManualPayment = async (payload:Record<string,unknown>,external=false) => {
+    const entrySession=sessionTokenRef.current;
     try {
-      const res = await fetch('/api/treasury/manual-payment', {
+      const res = await fetch(external?'/api/treasury/external-order':'/api/treasury/manual-payment', {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify(payload),
       });
       const data = await res.json();
+      if(sessionTokenRef.current!==entrySession)return {ok:false,ambiguous:true,error:'نشست تغییر کرده است؛ نتیجه قبلی باید از سرور بررسی شود.'};
       if (!res.ok || data.error) {
-        return { ok: false, error: data.error || 'خطا در ثبت پرداخت دستی' };
+        return { ok: false,status:res.status,ambiguous:res.status>=500, error: data.error || 'خطا در ثبت خارج سامانه' };
       }
       if (data.state) {
-        setDbState(data.state);
-        showToast(`پرداخت دستی از طریق ${payload.bankName} ثبت گردید.`);
+        await fetchState();
+        showToast(external?'دستور خارج سامانه به تأیید حسابداری ارسال شد.':'پرداخت انجام‌شده و فیش واقعی ثبت شد.');
       }
-      return { ok: true };
+      if(sessionTokenRef.current!==entrySession)return {ok:false,ambiguous:true,error:'نشست تغییر کرده است؛ شناسه پیگیری حفظ شد.'};
+      return { ok: true,trackingCode:(data.item||data.manualPayment)?.trackingCode as string|undefined };
     } catch {
-      return { ok: false, error: 'خطا در ارتباط با سرور' };
+      return { ok: false,ambiguous:true,error: 'نتیجه ثبت دریافت نشد؛ ابتدا نتیجه قبلی را بررسی کنید.' };
     }
   };
 
@@ -1623,12 +1641,12 @@ export default function App() {
       currentPerms.canManageCompanies ||
       currentPerms.canManageDepartments ||
       currentPerms.canManageCostCenters ||
-      currentPerms.canManageSmsGateway
+      currentPerms.canManageSmsGateway || currentPerms.canManageBankInquiry
   );
   const canAccessApprover = Boolean(currentPerms.canAccessApproverCartable);
   const canAccessAccounting = Boolean(currentPerms.canAccessAccountingCartable);
   const canAccessTreasury = Boolean(
-    currentPerms.canAccessTreasuryQueue ||
+    currentPerms.canInquireBankDetails || currentPerms.canConfirmBankOwner || currentPerms.canAccessTreasuryQueue ||
       currentPerms.canAccessTreasuryInPayment ||
       currentPerms.canAccessTreasuryCompleted ||
       currentPerms.canAccessTreasuryBankAccounts ||
@@ -1641,6 +1659,7 @@ export default function App() {
 
   return (
     <React.Suspense fallback={<div dir="rtl" className="min-h-screen grid place-items-center bg-slate-50 text-slate-700">در حال بازکردن کارتابل...</div>}>
+    <RequestDetailsProvider user={currentUser} state={dbState} onReceipt={setActiveReceiptModal}>
     <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-900 flex">
       {/* Right Fixed / Sticky Sidebar with Submenus & Cartable & Role Accesses */}
       <SidebarNavigation
@@ -1911,7 +1930,8 @@ export default function App() {
           )}
 
           {/* 1. ADMIN PANEL */}
-          {activeSection === 'ADMIN_PANEL' && canAccessAdmin && (
+          {activeSection==='ADMIN_PANEL'&&canAccessAdmin&&adminSubTab==='BANK_INQUIRY'&&<BankInquiryPanel key={currentUser.id+'-config'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} settingsOnly/>}
+          {activeSection === 'ADMIN_PANEL' && canAccessAdmin && adminSubTab!=='BANK_INQUIRY' && (
               <AdminPortalView
                 currentUser={currentUser}
                 activeSubTab={adminSubTab}
@@ -1979,6 +1999,7 @@ export default function App() {
               onSubmitBatchPayment={handleSubmitBatchPayment}
               onResubmitRequest={handleResubmitRequest}
               onEditSubmittedRequest={handleEditSubmittedRequest}
+              onDeleteSubmittedRequest={handleDeleteSubmittedRequest}
               onOpenReceiptModal={(rcp) => setActiveReceiptModal(rcp)}
             />
           )}
@@ -1987,6 +2008,8 @@ export default function App() {
           {activeSection === 'APPROVER' && canAccessApprover && (
             <ApprovalsWorkspaceView
               mode="APPROVER"
+              costCenters={dbState.costCenters||[]}
+              companies={dbState.companies||[]}
               currentUser={currentUser}
               advanceRequests={dbState.advanceRequests}
               paymentRequests={dbState.paymentRequests}
@@ -2004,6 +2027,8 @@ export default function App() {
             currentPerms.canViewRequests ? (
             <ApprovalsWorkspaceView
               mode="ACCOUNTING"
+              costCenters={dbState.costCenters||[]}
+              companies={dbState.companies||[]}
               currentUser={currentUser}
               advanceRequests={dbState.advanceRequests}
               paymentRequests={dbState.paymentRequests}
@@ -2024,7 +2049,8 @@ export default function App() {
           )}
 
           {/* 5. TREASURY WORKSPACE */}
-          {activeSection === 'TREASURY' && canAccessTreasury && (
+          {activeSection==='TREASURY'&&canAccessTreasury&&treasurySubTab==='BANK_INQUIRY'&&<BankInquiryPanel key={currentUser.id+'-inquiry'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} onOpenSettings={currentPerms.canManageBankInquiry?()=>{setAdminSubTab('BANK_INQUIRY');setActiveSection('ADMIN_PANEL');}:undefined}/>}
+          {activeSection === 'TREASURY' && canAccessTreasury && treasurySubTab!=='BANK_INQUIRY' && (
             <TreasuryWorkspaceView
               currentUser={currentUser}
               advanceRequests={dbState.advanceRequests}
@@ -2037,9 +2063,12 @@ export default function App() {
               searchInputRef={searchInputRef}
               initialSubTab={treasurySubTab}
               onMoveTreasuryPool={handleMoveTreasuryPool}
+              onReturnForCorrection={handleTreasuryReturn}
+              onOpenBankInquiry={()=>setTreasurySubTab('BANK_INQUIRY')}
               onExecutePayment={handleExecutePayment}
               onRefreshState={fetchState}
               onCreateManualPayment={handleCreateManualPayment}
+              costCenters={dbState.costCenters||[]}
               onCloseDailyCover={handleCloseDailyCover}
               onSaveBankAccount={handleSaveBankAccount}
                 onImportBankAccounts={handleImportBankAccounts}
@@ -2049,6 +2078,7 @@ export default function App() {
               onShowToast={showToast}
             />
           )}
+          {activeSection==='REPORTS'&&currentPerms.canAccessTreasuryReports&&<FinancialReports key={JSON.stringify([currentUser.id,currentUser.role,currentUser.additionalRoles,currentUser.company,currentUser.department,currentPerms,currentUser.effectiveAccessScope,dbState.roleConfigs,dbState.companies])} user={currentUser} companies={dbState.companies||[]} canExport={currentPerms.canExportReports} request={async(query,download)=>{const response=await fetch('/api/reports/treasury'+(download?'/export':'')+'?'+query,{headers:authHeaders});const body=await response.json();if(!response.ok)throw Error(body.error||'گزارش تهیه نشد.');return body.report;}}/>}
         </main>
       </div>
 
@@ -2185,6 +2215,7 @@ export default function App() {
         </div>
       )}
     </div>
+    </RequestDetailsProvider>
     </React.Suspense>
   );
 }

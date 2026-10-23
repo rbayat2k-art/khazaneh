@@ -4,6 +4,8 @@ export const IBAN_ERROR='شماره شبا باید IR و دقیقاً ۲۴ رق
 export function bankDigits(value:string):string{return value.replace(/[۰-۹]/g,c=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).replace(/[٠-٩]/g,c=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)));}
 export function normalizeCard(value:string):string{return bankDigits(value).replace(/[\s-]/g,'');}
 export function normalizeIban(value:string):string{const v=bankDigits(value).replace(/[\s-]/g,'').toUpperCase();return /^\d+$/.test(v)?'IR'+v:v;}
+/** Check provider/export identifiers without changing existing form obligations. */
+export function validIranIban(value:unknown):value is string{return typeof value==='string'&&/^IR\d{24}$/.test(value)&&BigInt(value.slice(4)+'1827'+value.slice(2,4))%97n===1n;}
 // Legacy non-string values are repairs, never evidence that the approved identifier is unchanged.
 export function bankIdentifierChanged(next:string|undefined,previous:unknown,kind:'CARD'|'IBAN'):boolean{
   if(next===undefined)return false;
@@ -11,7 +13,8 @@ export function bankIdentifierChanged(next:string|undefined,previous:unknown,kin
   const normalize=kind==='CARD'?normalizeCard:normalizeIban;
   return normalize(next)!==normalize(typeof previous==='string'?previous:'');
 }
-export function bankFieldsError(fields:{accountOrCard?:unknown;cardNumber?:unknown;iban?:unknown}):string|null{
+export function bankFieldsError(fields:{accountOrCard?:unknown;cardNumber?:unknown;iban?:unknown},requireCard=false):string|null{
+  if(requireCard&&(typeof fields.accountOrCard!=='string'||!/^\d{16}$/.test(normalizeCard(fields.accountOrCard))))return CARD_ERROR;
   for(const key of ['accountOrCard','cardNumber'] as const){const v=fields[key];if(v!==undefined&&(typeof v!=='string'||(normalizeCard(v)!==''&&!/^\d{16}$/.test(normalizeCard(v)))))return CARD_ERROR;}
   const v=fields.iban;if(v!==undefined&&(typeof v!=='string'||(normalizeIban(v)!==''&&!/^IR\d{24}$/.test(normalizeIban(v)))))return IBAN_ERROR;
   return null;

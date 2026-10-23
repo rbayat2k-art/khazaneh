@@ -48,6 +48,7 @@ export type MainSection =
   | 'APPROVER'
   | 'ACCOUNTING'
   | 'TREASURY'
+  | 'REPORTS'
   | 'SETTINGS';
 
 export type RequesterSubView =
@@ -104,6 +105,7 @@ type CollapsibleMenuKey =
   | 'APPROVER_MENU'
   | 'ACCOUNTING_MENU'
   | 'TREASURY_MENU'
+  | 'REPORTS_MENU'
   | 'MASTER_DATA_MENU'
   | 'USERS_ACCESS_MENU'
   | 'SETTINGS_MENU';
@@ -155,7 +157,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
       perms.canAccessTreasuryBankAccounts ||
       perms.canAccessTreasuryManualPayment ||
       perms.canAccessTreasuryDailyCover ||
-      perms.canAccessTreasuryArchive
+      perms.canAccessTreasuryArchive || perms.canInquireBankDetails || perms.canConfirmBankOwner
   );
 
   const canAccessMasterDataMenu = Boolean(
@@ -163,7 +165,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
       perms.canManageCompanies ||
       perms.canManageDepartments ||
       perms.canManageCostCenters ||
-      perms.canManageSmsGateway
+      perms.canManageSmsGateway || perms.canManageBankInquiry
   );
 
   const canAccessUsersAccessMenu = Boolean(
@@ -179,7 +181,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     (activeAdminTab === 'MASTER_COMPANIES' ||
       activeAdminTab === 'MASTER_DEPARTMENTS' ||
       activeAdminTab === 'MASTER_COST_CENTERS' ||
-      activeAdminTab === 'SMS_GATEWAY');
+      activeAdminTab === 'SMS_GATEWAY'||activeAdminTab==='BANK_INQUIRY');
 
   const isUsersAccessSubTab =
     activeSection === 'ADMIN_PANEL' &&
@@ -200,6 +202,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     APPROVER_MENU: activeSection === 'APPROVER',
     ACCOUNTING_MENU: activeSection === 'ACCOUNTING',
     TREASURY_MENU: activeSection === 'TREASURY',
+    REPORTS_MENU:activeSection==='REPORTS',
     MASTER_DATA_MENU: isMasterDataSubTab,
     USERS_ACCESS_MENU: isUsersAccessSubTab || activeSection === 'ADMIN_PANEL',
     SETTINGS_MENU: activeSection === 'SETTINGS',
@@ -219,6 +222,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
       setOpenMenus((prev) => ({ ...prev, ACCOUNTING_MENU: true }));
     } else if (activeSection === 'TREASURY') {
       setOpenMenus((prev) => ({ ...prev, TREASURY_MENU: true }));
+    } else if (activeSection === 'REPORTS') {
+      setOpenMenus((prev) => ({ ...prev, REPORTS_MENU: true }));
     } else if (activeSection === 'ADMIN_PANEL') {
       if (
         activeAdminTab === 'MASTER_COMPANIES' ||
@@ -953,6 +958,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     </button>
                   )}
 
+                  {(perms.canInquireBankDetails||perms.canConfirmBankOwner)&&<button type="button" onClick={()=>handleTreasurySubClick('BANK_INQUIRY')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-right ${activeSection==='TREASURY'&&activeTreasuryTab==='BANK_INQUIRY'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><ShieldCheck className="w-3.5 h-3.5 text-blue-600"/><span>تکمیل و استعلام شبا</span></button>}
                   {perms.canAccessTreasuryBankAccounts !== false && (
                     <button
                       type="button"
@@ -982,11 +988,14 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     >
                       <div className="flex items-center gap-2">
                         <PhoneCall className="w-3.5 h-3.5 text-slate-500" />
-                        <span>پرداخت تلفنی / کاغذی</span>
+                        <span>ثبت پرداخت انجام‌شده</span>
                       </div>
                     </button>
                   )}
 
+                  {perms.canAccessTreasuryManualPayment !== false && perms.canCreateRequest && perms.canSubmitSinglePayment && (
+                    <button type="button" onClick={()=>handleTreasurySubClick('EXTERNAL_ORDER')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] cursor-pointer text-right ${activeSection==='TREASURY'&&activeTreasuryTab==='EXTERNAL_ORDER'?'bg-slate-900/10 text-slate-950 font-bold border-r-2 border-slate-900':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><PhoneCall className="w-3.5 h-3.5 text-slate-500"/><span>ثبت دستور پرداخت خارج سامانه</span></button>
+                  )}
                   {perms.canAccessTreasuryDailyCover !== false && (
                     <button
                       type="button"
@@ -1031,6 +1040,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
           )}
 
           {/* 4. COLLAPSIBLE MENU: MASTER DATA MANAGEMENT (اطلاعات پایه) */}
+          {perms.canAccessTreasuryReports&&<div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden"><button type="button" onClick={()=>toggleMenu('REPORTS_MENU')} aria-expanded={openMenus.REPORTS_MENU} className={'w-full flex items-center justify-between px-3 py-2.5 text-right font-bold '+(activeSection==='REPORTS'?'bg-slate-900 text-white':'bg-slate-50/70 text-slate-800')}><span className="flex items-center gap-2"><History className="w-4 h-4"/>گزارش‌ها و خروجی‌ها</span><ChevronDown className="w-4 h-4"/></button>{openMenus.REPORTS_MENU&&<div className="p-2"><button type="button" onClick={()=>{onSelectSection('REPORTS');onCloseMobile();}} className={'w-full px-2.5 py-2 rounded-lg text-xs text-right '+(activeSection==='REPORTS'?'bg-blue-50 text-blue-950 font-bold':'text-slate-600 hover:bg-slate-50')}>گزارش جامع درخواست‌ها و پرداخت‌ها</button></div>}</div>}
           {canAccessMasterDataMenu && (
             <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
               <button
@@ -1125,6 +1135,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     </button>
                   )}
 
+                  {perms.canManageBankInquiry&&<button type="button" onClick={()=>handleAdminSubClick('BANK_INQUIRY')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-right ${activeSection==='ADMIN_PANEL'&&activeAdminTab==='BANK_INQUIRY'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><ShieldCheck className="w-3.5 h-3.5 text-blue-600"/><span>تنظیمات استعلام کارت و شبا</span></button>}
                   {(currentUser.role === 'ADMIN' || perms.canManageSmsGateway) && (
                     <button
                       type="button"

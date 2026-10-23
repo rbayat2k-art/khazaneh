@@ -1,3 +1,4 @@
+import {RialInput} from './RialInput';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
@@ -64,6 +65,7 @@ export type AdminSubTab =
   | 'RECOVERY'
   | 'AUDIT'
   | 'SMS_GATEWAY'
+  | 'BANK_INQUIRY'
   | 'MASTER_COMPANIES'
   | 'MASTER_DEPARTMENTS'
   | 'MASTER_COST_CENTERS';
@@ -612,7 +614,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
             ? 20000000000
             : 0,
         paymentLimitRial: newRoleTemplate === 'TREASURY' ? 50000000000 : 0,
-        permissions: templatePerms,
+        permissions: {...templatePerms,canAccessTreasuryReports:false},
       });
       if (!res.ok) {
         setRoleSaveError(res.error || 'خطا در ایجاد نقش جدید');
@@ -894,8 +896,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     سقف مجاز تأیید مالی اختصاصی (ریال) — اختیاری
                   </label>
-                  <input
-                    type="number"
+                  <RialInput
+                    key={`user-approval-${editingUserId||'new'}`}
                     min={0}
                     value={financialApprovalLimit}
                     onChange={(e) => setFinancialApprovalLimit(e.target.value)}
@@ -910,8 +912,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     سقف مجاز اجرای پرداخت اختصاصی (ریال) — اختیاری
                   </label>
-                  <input
-                    type="number"
+                  <RialInput
+                    key={`user-payment-${editingUserId||'new'}`}
                     min={0}
                     value={paymentExecutionLimit}
                     onChange={(e) => setPaymentExecutionLimit(e.target.value)}
@@ -1673,8 +1675,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     <label className="block text-[11px] font-bold text-slate-800 mb-1">
                       سقف پیش‌فرض تأیید مالی (ریال)
                     </label>
-                    <input
-                      type="number"
+                    <RialInput
+                      key={`role-approval-${activeRoleConfig.role}`}
                       min={0}
                       disabled={!rolePermsDraft.canApprove}
                       value={roleApprovalLimitDraft}
@@ -1690,8 +1692,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     <label className="block text-[11px] font-bold text-slate-800 mb-1">
                       سقف پیش‌فرض اجرای پرداخت (ریال)
                     </label>
-                    <input
-                      type="number"
+                    <RialInput
+                      key={`role-payment-${activeRoleConfig.role}`}
                       min={0}
                       disabled={!rolePermsDraft.canExecutePayment}
                       value={rolePaymentLimitDraft}
@@ -1729,6 +1731,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                           canExecutePayment: true,
                           canViewAttachments: true,
                           canExportReports: true,
+                          canAccessTreasuryReports: true,
                           canManageUsers: true,
                           canAccessRequesterSection: true,
                           canCreatePaymentBatch: true,
@@ -1770,6 +1773,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                           canExecutePayment: false,
                           canViewAttachments: true,
                           canExportReports: false,
+                          canAccessTreasuryReports: false,
                           canManageUsers: false,
                           canAccessRequesterSection: false,
                           canCreatePaymentBatch: false,
@@ -1896,6 +1900,16 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                         ],
                       },
                       {
+                        groupTitle: 'استعلام کارت و شبا و کنترل صاحب حساب',
+                        icon: <ShieldCheck className="w-4 h-4 text-blue-600" />,
+                        badgeColor:'bg-blue-50 text-blue-900 border-blue-200',
+                        items:[
+                          {key:'canManageBankInquiry' as keyof RolePermissionSet,label:'مدیریت تنظیمات و اعتبار استعلام بانکی',desc:'فعال‌سازی برای شرکت‌ها و سقف مصرف؛ نیازمند محدوده همه شرکت‌ها'},
+                          {key:'canInquireBankDetails' as keyof RolePermissionSet,label:'استعلام شبا، تکمیل کارت مفقود و تلاش مجدد',desc:'فقط ردیف کاملاً پرداخت‌نشده در شرکت مجاز؛ تعویض کارت کامل از مسیر عودت فنی'},
+                          {key:'canConfirmBankOwner' as keyof RolePermissionSet,label:'تأیید و اصلاح نام بانکی با دلیل',desc:'مشاهده دو نام، تأیید صریح نام بانکی و حفظ نام قبلی در سابقه؛ مبلغ ثابت'},
+                        ],
+                      },
+                      {
                         groupTitle: 'منوی خزانه‌داری و عملیات پرداخت',
                         icon: <Landmark className="w-4 h-4 text-emerald-600" />,
                         badgeColor: 'bg-emerald-50 text-emerald-900 border-emerald-200',
@@ -1922,8 +1936,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                           },
                           {
                             key: 'canAccessTreasuryManualPayment' as keyof RolePermissionSet,
-                            label: 'زیرمنوی ثبت پرداخت دستی و تلفنی',
-                            desc: 'ثبت پرداخت‌های اضطراری خارج از صف عادی',
+                            label: 'زیرمنوهای ثبت پرداخت انجام‌شده و دستور خارج سامانه',
+                            desc: 'پرداخت انجام‌شده با فیش واقعی؛ دستور جدید با مجوز ثبت درخواست ابتدا به حسابداری می‌رود',
                           },
                           {
                             key: 'canAccessTreasuryDailyCover' as keyof RolePermissionSet,
@@ -2012,6 +2026,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                             label: 'گزارش‌گیری و خروجی اکسل (XLSX) و چاپ',
                             desc: 'دریافت فایل اکسل و نسخه چاپی از جداول کارتابل',
                           },
+                          {key:'canAccessTreasuryReports' as keyof RolePermissionSet,label:'گزارش جامع درخواست‌ها و پرداخت‌ها',desc:'صفحه گزارش با فیلتر تاریخ و نوع، فقط شرکت‌های مجاز؛ بدون اختیار پرداخت. دانلود علاوه بر آن مجوز خروجی اکسل می‌خواهد.'},
                           {
                             key: 'canAccessSettings' as keyof RolePermissionSet,
                             label: 'دسترسی به منوی تنظیمات و حساب کاربری',

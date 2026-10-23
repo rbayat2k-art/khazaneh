@@ -21,9 +21,10 @@ export function SortableHeader<T>({
 }: SortableHeaderProps<T>) {
   const isActive = sortConfig.key === field;
   const direction = isActive ? sortConfig.direction : null;
+  const compact = type === 'event_time';
 
   const sortHint =
-    type === 'numeric'
+    type==='event_time'||type==='jalali_date' ? direction==='asc'?'قدیمی به جدید':direction==='desc'?'جدید به قدیمی':'مرتب‌سازی زمانی' : type === 'numeric'
       ? direction === 'asc'
         ? 'کم به زیاد'
         : direction === 'desc'
@@ -41,7 +42,7 @@ export function SortableHeader<T>({
       aria-sort={
         isActive ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'
       }
-      className={`px-2 py-2.5 text-right text-[11px] font-bold text-slate-700 select-none border-b border-slate-200 bg-slate-50/90 align-middle ${className}`}
+      className={`${compact ? 'px-1' : 'px-2'} py-2.5 text-right text-[11px] font-bold text-slate-700 select-none border-b border-slate-200 bg-slate-50/90 align-middle ${className}`}
     >
       <button
         type="button"
@@ -53,7 +54,7 @@ export function SortableHeader<T>({
           }
         }}
         title={`${label} — ${sortHint} (کلید Enter یا Space)`}
-        className={`group inline-flex flex-wrap items-center gap-1 rounded px-1 py-0.5 transition-colors text-right leading-tight cursor-pointer ${
+        className={`group inline-flex flex-wrap items-center ${compact ? 'gap-0.5 px-0.5' : 'gap-1 px-1'} rounded py-0.5 transition-colors text-right leading-tight cursor-pointer ${
           isActive
             ? 'text-slate-950 font-bold bg-slate-200/75'
             : 'text-slate-700 hover:text-slate-950 hover:bg-slate-200/40'

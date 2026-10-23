@@ -2,7 +2,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright'),assert=req
 const {readCommittedResponse}=require('./browser-response.cjs');
 const base='http://127.0.0.1:4322',out=process.env.TREASURY_UI_OUTPUT,password='Synthetic-Only!2026',tokens={},errors=[];
 if(!out||!process.env.TREASURY_TEST_DIR)throw Error('explicit synthetic environment required');
-async function api(route,user,body){const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(tokens[user]?{authorization:'Bearer '+tokens[user]}:{})},...(body?{body:JSON.stringify(body)}:{})});const d=await r.json();assert.equal(r.status,200,route);return d;}
+async function api(route,user,body){body=require('./request-fixture.cjs').requestFixture(route,body);const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(tokens[user]?{authorization:'Bearer '+tokens[user]}:{})},...(body?{body:JSON.stringify(body)}:{})});const d=await r.json();assert.equal(r.status,200,route);return d;}
 async function nav(page,name){const mobile=page.viewportSize().width<768;if(mobile)await page.getByRole('button',{name:'باز کردن منوی کناری',exact:true}).click();const parent=page.getByRole('button',{name:'خزانه‌داری و عملیات پرداخت'}),target=parent.locator('..').getByRole('button',{name});if(!await target.isVisible())await parent.click();await target.click();if(mobile)await page.waitForFunction(()=>document.querySelector('aside[aria-label="ناوبری اصلی پرتال"]').getBoundingClientRect().left>=innerWidth-1);}
 (async()=>{const browser=await chromium.launch({channel:'msedge',headless:true});let page;
 try{

@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
 import type { RequestStatus, CoverStatus, Role } from '../types/treasury';
+import {compareEventOrder} from './record-time';
 
 export type SortDirection = 'asc' | 'desc';
-export type SortFieldType = 'numeric' | 'text' | 'jalali_date' | 'status';
+export type SortFieldType = 'numeric' | 'text' | 'jalali_date' | 'status' | 'event_time';
 
 export interface SortConfig<T> {
   key: keyof T | string;
@@ -69,6 +70,7 @@ export function useSortableTable<T extends Record<string, any>>(
     sortable.sort((a, b) => {
       const valA = a[key as keyof T];
       const valB = b[key as keyof T];
+      if(type==='event_time')return compareEventOrder(valA,valB,direction);
 
       if (type === 'numeric') {
         const numA = typeof valA === 'number' ? valA : Number(String(valA ?? '0').replace(/[^0-9.-]+/g, '')) || 0;

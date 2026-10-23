@@ -1,3 +1,16 @@
+import {RialInput} from './RialInput';
+import {ReceiptUpload} from './ReceiptUpload';
+import type {ReceiptInputStatus} from '../utils/receipt-input';
+import {buildCompletedTreasuryItems,completedReportSummary} from '../utils/completed-payments';
+import {RequestSummaryHeaders,RequestSummaryRow} from './RequestSummaryTable';
+import {targetFromTreasury,requestRecordSortFields} from '../utils/request-details';
+import {useRequestDetails} from './RequestDetails';
+import {ExternalPaymentEntryForm,type EntryOutcome} from './ExternalPaymentEntryForm';
+import {requestTimeFields} from '../utils/record-time';
+import type {CostCenterItem} from '../types/treasury';
+import {CardInput} from './CardInput';
+import {IbanInput} from './IbanInput';
+import {JalaliDateInput} from './JalaliDateInput';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {OfficialReviewNotes} from './OfficialReviewNotes';
 import {readPendingPayments,overlaps,confirmedPayment,clearPendingPayment,trackedPayment,paymentFingerprint,type PendingPayment,type PaymentOutcome,type PaymentLock} from '../utils/pending-payment';
@@ -55,12 +68,18 @@ import {
 import { SortableHeader } from './SortableHeader';
 import {
   buildUnifiedTreasuryItems,
-  exportTreasuryItemsToExcel,
   type UnifiedTreasuryItem,
 } from '../utils/excelExport';
+import {exportTreasuryOperational as exportTreasuryItemsToExcel} from '../utils/treasury-operational-export';
 import { SourceBankAccountSelector } from './SourceBankAccountSelector';
 import { BankAccountImportDialog,type ImportBankAccounts } from './BankAccountImportDialog';
 import {BANK_ACCOUNT_BANKS as SYSTEM_BANKS} from '../utils/bank-account-import';
+import {TreasuryReturnDialog,treasuryReturnRows} from './TreasuryReturnDialog';
+import type {TreasuryReturn} from '../utils/treasury-correction';
+import {treasuryTargets,treasuryExpectedPaid} from '../utils/treasury-targets';
+import {RequestTimeHeaders,RequestTimeCells,RequestTimeHelp} from './RequestTimeColumns';
+import {normalizeRolePermissionSet} from '../types/treasury';
+import {BankInquirySummary} from './BankInquirySummary';
 
 const ALL_PAYMENT_METHODS: Array<{ id: PaymentMethodType; label: string }> = [
   { id: 'PAYA', label: 'پایا (حواله الکترونیک)' },
@@ -71,6 +90,8 @@ const ALL_PAYMENT_METHODS: Array<{ id: PaymentMethodType; label: string }> = [
 ];
 
 interface TreasuryWorkspaceViewProps {
+  onOpenBankInquiry:()=>void;
+  onReturnForCorrection:(payload:TreasuryReturn)=>Promise<{ok:boolean;error?:string}>;
   currentUser: User;
   advanceRequests: AdvanceRequest[];
   paymentRequests: PaymentRequest[];
@@ -110,19 +131,8 @@ interface TreasuryWorkspaceViewProps {
     expectedPaidAmounts?:Record<string,number>;
   }) => Promise<PaymentOutcome>;
   onRefreshState:()=>Promise<void>;
-  onCreateManualPayment: (payload: {
-    amount: number;
-    payee: string;
-    description: string;
-    sourceBankAccountId: string;
-    bankName: string;
-    date: string;
-    orderedBy: string;
-    createdById: string;
-    bankRefNumber: string;
-    receiptFileUrl?: string;
-    receiptFileName?: string;
-  }) => Promise<{ ok: boolean; error?: string }>;
+  costCenters:CostCenterItem[];
+  onCreateManualPayment:(payload:Record<string,unknown>,external?:boolean)=>Promise<EntryOutcome>;
   onCloseDailyCover: (payload: {
     date: string;
     bankName: string;
@@ -159,9 +169,12 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   searchInputRef,
   initialSubTab = 'QUEUE',
   onMoveTreasuryPool,
+  onReturnForCorrection,
+  onOpenBankInquiry,
   onExecutePayment,
   onRefreshState,
   onCreateManualPayment,
+  costCenters,
   onCloseDailyCover,
   onSaveBankAccount,
   onImportBankAccounts,
@@ -172,6 +185,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 }) => {
   const [subTab, setSubTab] = useState<TreasurySubTab>(initialSubTab);
   const [showBankImport,setShowBankImport]=useState(false);
+  const [returnTarget,setReturnTarget]=useState<UnifiedTreasuryItem|null>(null);
   const closeBankImport=React.useCallback(()=>setShowBankImport(false),[]);
 
   useEffect(() => {
@@ -193,7 +207,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   const [completedTypeFilter, setCompletedTypeFilter] = useState<string>('ALL');
 
   // Detail Modal for inspecting all form columns or batch items
-  const [detailModalItem, setDetailModalItem] = useState<UnifiedTreasuryItem | null>(null);
+
 
   // Payment Execution Modal State
   const [paymentModalItems, setPaymentModalItems] = useState<UnifiedTreasuryItem[] | null>(null);
@@ -204,32 +218,26 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   const [execDateJalali, setExecDateJalali] = useState<string>(todayJalali());
   const [uploadedReceiptDataUrl, setUploadedReceiptDataUrl] = useState<string>('');
   const [uploadedReceiptName, setUploadedReceiptName] = useState<string>('');
+  const receiptStatusRef=useRef<ReceiptInputStatus>({busy:false,error:''}),[receiptStatus,setReceiptStatus]=useState(receiptStatusRef.current);
+  const changeReceiptStatus=(status:ReceiptInputStatus)=>{receiptStatusRef.current=status;setReceiptStatus(status);};
+  function resetReceiptUpload(){setUploadedReceiptDataUrl('');setUploadedReceiptName('');changeReceiptStatus({busy:false,error:''});}
   const [paymentModalError, setPaymentModalError] = useState<string | null>(null);
   const [modalPending,setModalPending]=useState<PendingPayment|null>(null);
   const paymentGeneration=useRef(0),paymentActor=useRef(currentUser.id);paymentActor.current=currentUser.id;
+  // Private in-memory form draft only; never put receipt bytes in the retry journal/storage.
+  const receiptRetryDrafts=useRef(new Map<string,{actor:string;targets:string[];sourceId:string;method:PaymentMethodType;amount:string;reference:string;date:string;url:string;name:string}>());
   const paymentLock:PaymentLock=(name,work)=>{if(!navigator.locks)throw Error('برای پیگیری امن ثبت از مرورگر به‌روز و اتصال HTTPS استفاده کنید.');return navigator.locks.request(name,work);};
   const recoveredReceipt=useMemo(()=>modalPending?confirmedPayment(modalPending,currentUser.id,[...paymentRequests.map(row=>({target:'PAY:'+row.id,row})),...advanceRequests.map(row=>({target:'ADV:'+row.id,row})),...batchPayments.flatMap(b=>b.items.map(row=>({target:'BAT:'+b.id,row})))],receiptArchives):undefined,[modalPending,currentUser.id,paymentRequests,advanceRequests,batchPayments,receiptArchives]);
-  useEffect(()=>{paymentGeneration.current++;setPaymentModalItems(null);setModalPending(null);setIsPaying(false);},[currentUser.id]);
+  useEffect(()=>{paymentGeneration.current++;setPaymentModalItems(null);setModalPending(null);setIsPaying(false);resetReceiptUpload();receiptRetryDrafts.current.clear();},[currentUser.id]);
   useEffect(()=>{if(recoveredReceipt)setPaymentModalError(null);},[recoveredReceipt]);
   const closePaymentModal=async()=>{
     if(isPaying)return;
-    try{if(recoveredReceipt&&modalPending)await clearPendingPayment(localStorage,paymentLock,currentUser.id,modalPending.key);paymentGeneration.current++;setPaymentModalItems(null);setModalPending(null);}catch{setPaymentModalError('پیگیری ثبت پاک نشد؛ برای جلوگیری از تکرار، ابتدا مشکل ذخیره‌سازی مرورگر را رفع کنید.');}
+    try{if(recoveredReceipt&&modalPending){await clearPendingPayment(localStorage,paymentLock,currentUser.id,modalPending.key);receiptRetryDrafts.current.delete(modalPending.key);}paymentGeneration.current++;setPaymentModalItems(null);setModalPending(null);resetReceiptUpload();}catch{setPaymentModalError('پیگیری ثبت پاک نشد؛ برای جلوگیری از تکرار، ابتدا مشکل ذخیره‌سازی مرورگر را رفع کنید.');}
   };
   const [isPaying, setIsPaying] = useState<boolean>(false);
   const [isMovingPool, setIsMovingPool] = useState<boolean>(false);
 
-  // Manual Payment Form State
-  const [manualAmount, setManualAmount] = useState<string>('');
-  const [manualPayee, setManualPayee] = useState<string>('');
-  const [manualDescription, setManualDescription] = useState<string>('');
-  const [manualSourceAccountId, setManualSourceAccountId] = useState<string>('');
-  const [manualDate, setManualDate] = useState<string>(todayJalali());
-  const [manualOrderedBy, setManualOrderedBy] = useState<string>('');
-  const [manualRefNo, setManualRefNo] = useState<string>('');
-  const [manualReceiptUrl, setManualReceiptUrl] = useState<string>('');
-  const [manualReceiptName, setManualReceiptName] = useState<string>('');
-  const [manualError, setManualError] = useState<string | null>(null);
-  const [isSavingManual, setIsSavingManual] = useState<boolean>(false);
+  const [manualSourceAccountId,setManualSourceAccountId]=useState('');
 
   // Daily Cover State
   const [coverDate, setCoverDate] = useState<string>(todayJalali());
@@ -294,9 +302,10 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
   const openPaymentModal = (items: UnifiedTreasuryItem[]) => {
     paymentGeneration.current++;
+    resetReceiptUpload();
     setPaymentModalItems(items);
     setPaymentModalError(null);
-    try{setModalPending(readPendingPayments(localStorage,currentUser.id).find(p=>overlaps(p,items.map(i=>i.uid)))||null);}catch{setModalPending(null);setPaymentModalError('پیگیری ثبت خوانده نشد؛ ارسال امن تا رفع مشکل ذخیره‌سازی ممکن نیست.');}
+    try{const journal=readPendingPayments(localStorage,currentUser.id),targets=items.map(i=>i.uid),pending=journal.find(p=>overlaps(p,targets));setModalPending(pending||null);for(const key of receiptRetryDrafts.current.keys())if(!journal.some(p=>p.key===key))receiptRetryDrafts.current.delete(key);const saved=pending&&receiptRetryDrafts.current.get(pending.key);if(saved&&saved.actor===currentUser.id&&JSON.stringify([...saved.targets].sort())===JSON.stringify([...targets].sort())){setSelectedSourceAccountId(saved.sourceId);setSelectedPaymentMethod(saved.method);setPartialPaymentAmount(saved.amount);setBankRefNumber(saved.reference);setExecDateJalali(saved.date);setUploadedReceiptDataUrl(saved.url);setUploadedReceiptName(saved.name);return;}}catch{setModalPending(null);setPaymentModalError('پیگیری ثبت خوانده نشد؛ ارسال امن تا رفع مشکل ذخیره‌سازی ممکن نیست.');}
     if (!selectedSourceAccountId && defaultActiveBankAccount) {
       setSelectedSourceAccountId(defaultActiveBankAccount.id);
     } else {
@@ -455,14 +464,12 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
   // Build Unified Items for Completed Payments (Paid + Manual Payments)
   const unifiedCompletedPayments = useMemo<UnifiedTreasuryItem[]>(() => {
-    return buildUnifiedTreasuryItems({
+    return buildCompletedTreasuryItems({
       batchPayments,
       paymentRequests,
       advanceRequests,
       manualPayments,
       receiptArchives,
-      targetStatuses: ['Paid'],
-      includeManuals: true,
     });
   }, [advanceRequests, paymentRequests, batchPayments, manualPayments, receiptArchives]);
 
@@ -556,23 +563,26 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
     });
   }, [companyBankAccounts, searchQuery, bankAccountStatusFilter]);
 
+  const {resolve:resolveDetails}=useRequestDetails();
+  const summaryItems=(items:UnifiedTreasuryItem[])=>items.map(item=>({...item,...requestRecordSortFields(resolveDetails(targetFromTreasury(item))),...(item.completedEntry?{summaryAmount:item.amount,...requestTimeFields({createdAt:item.createdAt,createdAtIso:item.createdAtIso,createdAtIsValueDate:item.type==='MANUAL'},[{status:'Paid',paidAt:item.paidAt}])}:{})}));
   const {
     sortedItems: sortedQueue,
     sortConfig: queueSort,
     handleSort: handleQueueSort,
-  } = useSortableTable(filteredQueue, 'dueDate', 'jalali_date', 'asc');
+  } = useSortableTable(summaryItems(filteredQueue), 'dueDate', 'jalali_date', 'asc');
 
   const {
     sortedItems: sortedInPayment,
     sortConfig: inPaySort,
     handleSort: handleInPaySort,
-  } = useSortableTable(filteredInPayment, 'dueDate', 'jalali_date', 'asc');
+  } = useSortableTable(summaryItems(filteredInPayment), 'dueDate', 'jalali_date', 'asc');
 
   const {
     sortedItems: sortedCompleted,
     sortConfig: completedSort,
     handleSort: handleCompletedSort,
-  } = useSortableTable(filteredCompleted, 'paidDateJalali', 'jalali_date', 'desc');
+  } = useSortableTable(summaryItems(filteredCompleted), 'paidDateJalali', 'jalali_date', 'desc');
+  const completedSummary=completedReportSummary(sortedCompleted);
 
   const {
     sortedItems: sortedManual,
@@ -697,12 +707,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
     setIsMovingPool(true);
     try {
       const ok = await onMoveTreasuryPool({
-        items: itemsToProcess
-          .filter((i) => i.type !== 'MANUAL')
-          .map((i) => ({
-            id: i.id,
-            type: i.type as 'ADVANCE' | 'PAYMENT' | 'BATCH',
-          })),
+        items: treasuryTargets(itemsToProcess),
         targetPool: 'IN_PAYMENT',
         treasuryUserId: currentUser.id,
         reason: `دریافت خروجی اکسل (${exportRes.fileName}) و انتقال به مخزن در حال پرداخت`,
@@ -725,12 +730,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
     setIsMovingPool(true);
     try {
       const ok = await onMoveTreasuryPool({
-        items: itemsToMove
-          .filter((i) => i.type !== 'MANUAL')
-          .map((i) => ({
-            id: i.id,
-            type: i.type as 'ADVANCE' | 'PAYMENT' | 'BATCH',
-          })),
+        items: treasuryTargets(itemsToMove),
         targetPool,
         treasuryUserId: currentUser.id,
       });
@@ -753,35 +753,17 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
     sheetTitle: string
   ) => {
     if (itemsToExport.length === 0) return;
+    try{
     const res = exportTreasuryItemsToExcel(itemsToExport, {
       fileNamePrefix: prefix,
       sheetTitle,
     });
     if (onShowToast) {
       onShowToast(
-        `فایل اکسل «${res.fileName}» شامل ${res.rowCount} ردیف با تمامی ستون‌های فرم‌ها دانلود شد.`
+        `فایل اکسل عملیاتی «${res.fileName}» شامل ${res.rowCount} ردیف پرداخت دانلود شد؛ گزارش گردش کامل در منوی گزارش‌هاست.`
       );
     }
-  };
-
-  const handleReceiptFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    target: 'MODAL' | 'MANUAL'
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      if (target === 'MODAL') {
-        setUploadedReceiptDataUrl(result);
-        setUploadedReceiptName(file.name);
-      } else {
-        setManualReceiptUrl(result);
-        setManualReceiptName(file.name);
-      }
-    };
-    reader.readAsDataURL(file);
+    }catch(error){onShowToast?.(error instanceof Error?error.message:'خروجی تهیه نشد.');}
   };
 
   const selectedModalSourceAccount = useMemo(() => {
@@ -794,6 +776,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
     e.preventDefault();
     setPaymentModalError(null);
     if (!paymentModalItems || paymentModalItems.length === 0) return;
+    if(receiptStatusRef.current.busy||receiptStatusRef.current.error)return;
 
     if (!selectedModalSourceAccount) {
       setPaymentModalError(
@@ -831,14 +814,11 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
     }
 
     setIsPaying(true);
-    const generation=paymentGeneration.current,actor=currentUser.id;
+    const generation=paymentGeneration.current,actor=currentUser.id;let attemptKey:string|undefined;
     try {
-      const expectedPaidAmounts:Record<string,number>={};
-      for(const item of paymentModalItems){if(item.type==='BATCH'){for(const row of item.rawBatch?.items||[])if(row.status!=='Paid')expectedPaidAmounts[`BATCH_ITEM:${item.id}:${row.id}`]=row.paidAmountSoFar??row.paidAmount??0;}else if(item.type!=='MANUAL')expectedPaidAmounts[`${item.type}:${item.id}`]=item.paidAmountSoFar||0;}
+      const expectedPaidAmounts=treasuryExpectedPaid(paymentModalItems);
       const payload={
-        items: paymentModalItems
-          .filter((i) => i.type !== 'MANUAL')
-          .map((i) => ({ id: i.id, type: i.type as 'ADVANCE' | 'PAYMENT' | 'BATCH' })),
+        items: treasuryTargets(paymentModalItems),
         sourceBankAccountId: selectedModalSourceAccount.id,
         paidBankName: selectedModalSourceAccount.bankName,
         paymentAmount: isSingleItem ? numericPayAmt : undefined,
@@ -852,6 +832,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
       };
       const fingerprint=await paymentFingerprint(payload);
       const res=await trackedPayment(localStorage,paymentLock,actor,paymentModalItems.map(i=>i.uid),fingerprint,()=>paymentGeneration.current===generation&&paymentActor.current===actor,async key=>{
+        attemptKey=key;receiptRetryDrafts.current.set(key,{actor,targets:paymentModalItems.map(i=>i.uid),sourceId:selectedModalSourceAccount.id,method:selectedPaymentMethod,amount:partialPaymentAmount,reference:normalizedRefNo,date:execDateJalali,url:uploadedReceiptDataUrl,name:uploadedReceiptName});
         setModalPending(readPendingPayments(localStorage,actor).find(p=>p.key===key)||null);
         return onExecutePayment({...payload,idempotencyKey:key});
       });
@@ -864,6 +845,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
       }
 
       setPaymentModalItems(null);
+      if(attemptKey)receiptRetryDrafts.current.delete(attemptKey);
       setSelectedQueueUids([]);
       setSelectedInPaymentUids([]);
       setBankRefNumber('');
@@ -873,59 +855,6 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
       if(paymentGeneration.current===generation&&paymentActor.current===actor)setPaymentModalError('شناسه پیگیری حفظ یا بررسی نشد؛ ارسال متوقف است. ذخیره‌سازی مرورگر و اتصال امن را بررسی کنید.');
     } finally {
       if(paymentGeneration.current===generation&&paymentActor.current===actor)setIsPaying(false);
-    }
-  };
-
-  const selectedManualSourceAccount = useMemo(() => {
-    return (
-      companyBankAccounts.find((a) => a.id === manualSourceAccountId && a.isActive) || null
-    );
-  }, [companyBankAccounts, manualSourceAccountId]);
-
-  const handleManualSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setManualError(null);
-    const numAmt = Number(normalizeDigits(manualAmount));
-    if (!manualPayee.trim() || !numAmt || numAmt <= 0) {
-      setManualError('نام ذینفع و مبلغ معتبر الزامی است.');
-      return;
-    }
-    if (!selectedManualSourceAccount) {
-      setManualError('انتخاب حساب بانکی مبدأ فعال شرکت الزامی است.');
-      return;
-    }
-    const normalizedRef = normalizeDigits(manualRefNo).trim();
-    if (!normalizedRef) {
-      setManualError('شماره مرجع / پیگیری بانکی الزامی است.');
-      return;
-    }
-
-    setIsSavingManual(true);
-    try {
-      const res = await onCreateManualPayment({
-        amount: numAmt,
-        payee: manualPayee.trim(),
-        description: manualDescription.trim() || 'پرداخت تلفنی خارج از نوبت',
-        sourceBankAccountId: selectedManualSourceAccount.id,
-        bankName: selectedManualSourceAccount.bankName,
-        date: manualDate,
-        orderedBy: manualOrderedBy,
-        createdById: currentUser.id,
-        bankRefNumber: normalizedRef,
-        receiptFileUrl: manualReceiptUrl || undefined,
-        receiptFileName: manualReceiptName || undefined,
-      });
-      if (!res.ok) {
-        setManualError(res.error || 'خطا در ثبت پرداخت دستی');
-        return;
-      }
-      setManualPayee('');
-      setManualDescription('');
-      setManualRefNo('');
-      setManualReceiptUrl('');
-      setManualReceiptName('');
-    } finally {
-      setIsSavingManual(false);
     }
   };
 
@@ -1013,6 +942,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
   const activeSubTabMeta = useMemo(() => {
     switch (subTab) {
+      case 'BANK_INQUIRY':return {title:'تکمیل و استعلام شبا',subtitle:'اطلاعات مقصد بانکی',count:0,badgeClass:'bg-blue-50 text-blue-900 border-blue-200'};
       case 'QUEUE':
         return {
           title: 'صف انتظار پرداخت خزانه',
@@ -1041,10 +971,12 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
           count: companyBankAccounts.filter((a) => a.isActive).length,
           badgeClass: 'bg-blue-100 text-blue-900 border-blue-200',
         };
+      case 'EXTERNAL_ORDER':
+        return {title:'ثبت دستور پرداخت خارج سامانه',subtitle:'ثبت توسط خزانه → تأیید حسابداری → صف خزانه → پرداخت',count:paymentRequests.filter(p=>p.externalOrder&&p.requesterId===currentUser.id).length,badgeClass:'bg-slate-100 text-slate-800 border-slate-200'};
       case 'MANUAL':
         return {
-          title: 'ثبت پرداخت تلفنی / کاغذی (خارج از نوبت)',
-          subtitle: 'ثبت مستقیم دستور پرداخت‌های اضطراری و تلفنی همراه با پیوست فیش',
+          title: 'ثبت پرداخت انجام‌شده',
+          subtitle: 'برای پرداخت قبلاً انجام‌شده؛ ثبت فیش واقعی، بدون ارسال انتقال وجه به بانک',
           count: manualPayments.length,
           badgeClass: 'bg-slate-100 text-slate-800 border-slate-200',
         };
@@ -1076,6 +1008,9 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {returnTarget&&<TreasuryReturnDialog item={returnTarget} onClose={()=>setReturnTarget(null)} onReturn={onReturnForCorrection}/>}
+      {['QUEUE','IN_PAYMENT','COMPLETED'].includes(subTab)&&<RequestTimeHelp/>}
+      {['QUEUE','IN_PAYMENT'].includes(subTab)&&normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role).canInquireBankDetails&&<button type="button" className="px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white text-slate-700" onClick={onOpenBankInquiry}>تکمیل و استعلام شبای مقصد</button>}
       {/* Section Header & Search Bar (Sub-section navigation is controlled via the right sidebar menu) */}
       <section className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
@@ -1147,11 +1082,11 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                       ? 'bg-emerald-700 text-white hover:bg-emerald-800 cursor-pointer shadow-xs'
                       : 'bg-slate-200 text-slate-500 cursor-not-allowed'
                   }`}
-                  title="دانلود فایل اکسل با تمامی ستون‌های فرم‌ها و انتقال خودکار موارد انتخابی به مخزن در حال پرداخت"
+                  title="دانلود اکسل عملیاتی پرداخت و انتقال موارد انتخابی به مخزن در حال پرداخت؛ گزارش جامع در منوی گزارش‌هاست"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>
-                    خروجی اکسل کامل و انتقال به «در حال پرداخت» (
+                    خروجی اکسل عملیاتی و انتقال به «در حال پرداخت» (
                     {selectedQueueObjects.length.toLocaleString('fa-IR')} سند)
                   </span>
                 </button>
@@ -1173,7 +1108,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   }`}
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>فقط خروجی اکسل</span>
+                  <span>فقط خروجی اکسل عملیاتی</span>
                 </button>
 
                 <button
@@ -1205,155 +1140,30 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
               </div>
             </div>
 
-            <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full table-auto text-right border-collapse text-xs">
-                <thead>
-                  <tr>
-                    <th className="px-2 py-2.5 border-b border-slate-200 bg-slate-50/90 w-9 text-center">
-                      #
-                    </th>
-                    <SortableHeader
-                      label="کد رهگیری"
-                      field="trackingCode"
-                      type="text"
-                      sortConfig={queueSort}
-                      onSort={handleQueueSort}
-                    />
-                    <SortableHeader
-                      label="نوع فرم"
-                      field="typeLabel"
-                      type="text"
-                      sortConfig={queueSort}
-                      onSort={handleQueueSort}
-                    />
-                    <SortableHeader
-                      label="عنوان و شرح"
-                      field="title"
-                      type="text"
-                      sortConfig={queueSort}
-                      onSort={handleQueueSort}
-                    />
-                    <SortableHeader
-                      label="ذینفع / گیرنده وجه"
-                      field="payeeName"
-                      type="text"
-                      sortConfig={queueSort}
-                      onSort={handleQueueSort}
-                    />
-                    <SortableHeader
-                      label="واحد / مرکز هزینه"
-                      field="costCenter"
-                      type="text"
-                      sortConfig={queueSort}
-                      onSort={handleQueueSort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      بانک مقصد، کارت و شبا
-                    </th>
-                    <SortableHeader
-                      label="مبلغ قابل پرداخت (ریال)"
-                      field="remainingAmount"
-                      type="numeric"
-                      sortConfig={queueSort}
-                      onSort={handleQueueSort}
-                    />
-                    <SortableHeader
-                      label="سررسید"
-                      field="dueDate"
-                      type="jalali_date"
-                      sortConfig={queueSort}
-                      onSort={handleQueueSort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      عملیات خزانه
-                    </th>
-                  </tr>
-                </thead>
+            <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="request-record-table request-summary-table w-full text-right border-collapse text-xs">
+<thead><RequestSummaryHeaders sortConfig={queueSort} onSort={handleQueueSort} amountMode="REMAINING" selection={null}/></thead>
                 <tbody className="divide-y divide-slate-200">
                   {sortedQueue.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
                         هیچ موردی در صف انتظار پرداخت خزانه وجود ندارد.
                       </td>
                     </tr>
                   ) : (
-                    sortedQueue.map((item) => {
+                    sortedQueue.map((item,rowIndex) => {
                       const checked = selectedQueueUids.includes(item.uid);
                       return (
-                        <tr
-                          key={item.uid}
-                          className={`hover:bg-slate-50 transition-colors ${
-                            checked ? 'bg-amber-50/50' : ''
-                          }`}
-                        >
-                          <td className="px-2 py-2.5 text-center">
+                        <RequestSummaryRow key={item.uid} target={targetFromTreasury(item)} index={rowIndex+1} selection={<> 
                             <input
                               type="checkbox"
                               checked={checked}
                               onChange={() => toggleSelectQueueItem(item.uid)}
                               className="w-4 h-4 rounded border-slate-300 text-slate-900 cursor-pointer"
                             />
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-900 break-words">
-                            {item.trackingCode}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-700">
-                            <span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-semibold text-[11px]">
-                              {item.typeLabel}
-                            </span>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-900 font-medium break-words">
-                            <div>{item.title}</div>
-                            <div className="text-[11px] text-slate-500 break-words">
-                              {item.description}
-                            </div>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-800 font-semibold break-words">
-                            {item.payeeName}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                            <div>{item.department}</div>
-                            <div className="text-[11px] text-slate-500">{item.costCenter}</div>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                            <div className="font-semibold text-slate-900">
-                              {item.destinationBank}
-                            </div>
-                            <div className="text-[11px] font-mono-num text-slate-600 break-all">
-                              کارت/حساب: {item.accountOrCard}
-                            </div>
-                            <div className="text-[10px] font-mono-num text-slate-500 break-all">
-                              شبا: {item.iban}
-                            </div>
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-950">
-                            <div>{formatRial(item.remainingAmount ?? item.amount)}</div>
-                            {item.paidAmountSoFar > 0 && (
-                              <div className="text-[10px] text-emerald-700 font-normal">
-                                پرداخت‌شده قبلی: {formatRial(item.paidAmountSoFar)}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num text-slate-700">
-                            <div>{item.dueDate}</div>
-                            <span
-                              className={`inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-semibold ${getPriorityBadgeClasses(
-                                item.priority
-                              )}`}
-                            >
-                              {getPriorityLabel(item.priority)}
-                            </span>
-                          </td>
-                          <td className="px-2.5 py-2.5">
+                           </>} amountMode="REMAINING">
                             <div className="flex flex-wrap items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => setDetailModalItem(item)}
-                                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded cursor-pointer"
-                                title="مشاهده تمامی ستون‌ها و جزئیات فرم"
-                              >
-                                <Info className="w-3.5 h-3.5" />
-                              </button>
+                              
                               <button
                                 type="button"
                                 onClick={() => handleMoveItemsBetweenPools([item], 'IN_PAYMENT')}
@@ -1362,6 +1172,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                               >
                                 به در حال پرداخت
                               </button>
+                              {currentUser.effectivePermissions?.canExecutePayment&&treasuryReturnRows(item).length>0&&<button type="button" onClick={()=>setReturnTarget(item)} className="px-2 py-1 text-[11px] font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 rounded cursor-pointer">عودت برای اصلاح</button>}
                               <button
                                 type="button"
                                 onClick={() => openPaymentModal([item])}
@@ -1370,8 +1181,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                                 ثبت پرداخت
                               </button>
                             </div>
-                          </td>
-                        </tr>
+                          </RequestSummaryRow>
                       );
                     })
                   )}
@@ -1431,7 +1241,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   }`}
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>خروجی اکسل مجدد ({selectedInPaymentObjects.length})</span>
+                  <span>خروجی اکسل عملیاتی مجدد ({selectedInPaymentObjects.length})</span>
                 </button>
 
                 <button
@@ -1464,148 +1274,30 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
               </div>
             </div>
 
-            <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full table-auto text-right border-collapse text-xs">
-                <thead>
-                  <tr>
-                    <th className="px-2 py-2.5 border-b border-slate-200 bg-slate-50/90 w-9 text-center">
-                      #
-                    </th>
-                    <SortableHeader
-                      label="کد رهگیری"
-                      field="trackingCode"
-                      type="text"
-                      sortConfig={inPaySort}
-                      onSort={handleInPaySort}
-                    />
-                    <SortableHeader
-                      label="نوع فرم"
-                      field="typeLabel"
-                      type="text"
-                      sortConfig={inPaySort}
-                      onSort={handleInPaySort}
-                    />
-                    <SortableHeader
-                      label="عنوان و شرح"
-                      field="title"
-                      type="text"
-                      sortConfig={inPaySort}
-                      onSort={handleInPaySort}
-                    />
-                    <SortableHeader
-                      label="ذینفع / گیرنده وجه"
-                      field="payeeName"
-                      type="text"
-                      sortConfig={inPaySort}
-                      onSort={handleInPaySort}
-                    />
-                    <SortableHeader
-                      label="مرکز هزینه"
-                      field="costCenter"
-                      type="text"
-                      sortConfig={inPaySort}
-                      onSort={handleInPaySort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      بانک مقصد، شماره کارت و شبا
-                    </th>
-                    <SortableHeader
-                      label="مانده قابل پرداخت (ریال)"
-                      field="remainingAmount"
-                      type="numeric"
-                      sortConfig={inPaySort}
-                      onSort={handleInPaySort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      زمان ورود به مخزن
-                    </th>
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      عملیات
-                    </th>
-                  </tr>
-                </thead>
+            <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="request-record-table request-summary-table w-full text-right border-collapse text-xs">
+<thead><RequestSummaryHeaders sortConfig={inPaySort} onSort={handleInPaySort} amountMode="REMAINING" selection={null}/></thead>
                 <tbody className="divide-y divide-slate-200">
                   {sortedInPayment.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
                         در حال حاضر هیچ درخواستی در «مخزن در حال پرداخت» قرار ندارد.
                       </td>
                     </tr>
                   ) : (
-                    sortedInPayment.map((item) => {
+                    sortedInPayment.map((item,rowIndex) => {
                       const checked = selectedInPaymentUids.includes(item.uid);
                       return (
-                        <tr
-                          key={item.uid}
-                          className={`hover:bg-purple-50/30 transition-colors ${
-                            checked ? 'bg-purple-50/70' : ''
-                          }`}
-                        >
-                          <td className="px-2 py-2.5 text-center">
+                        <RequestSummaryRow key={item.uid} target={targetFromTreasury(item)} index={rowIndex+1} selection={<> 
                             <input
                               type="checkbox"
                               checked={checked}
                               onChange={() => toggleSelectInPaymentItem(item.uid)}
                               className="w-4 h-4 rounded border-slate-300 text-purple-900 cursor-pointer"
                             />
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-900 break-words">
-                            {item.trackingCode}
-                          </td>
-                          <td className="px-2.5 py-2.5">
-                            <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-900 font-semibold text-[11px]">
-                              {item.typeLabel}
-                            </span>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-900 font-medium break-words">
-                            <div>{item.title}</div>
-                            <div className="text-[11px] text-slate-500 break-words">
-                              {item.description}
-                            </div>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-800 font-semibold break-words">
-                            {item.payeeName}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                            <div>{item.department}</div>
-                            <div className="text-[11px] text-slate-500">{item.costCenter}</div>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                            <div className="font-semibold text-slate-900">
-                              {item.destinationBank}
-                            </div>
-                            <div className="text-[11px] font-mono-num text-slate-600 break-all">
-                              کارت/حساب: {item.accountOrCard}
-                            </div>
-                            <div className="text-[10px] font-mono-num text-slate-500 break-all">
-                              شبا: {item.iban}
-                            </div>
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-purple-950">
-                            <div>{formatRial(item.remainingAmount ?? item.amount)}</div>
-                            {item.paidAmountSoFar > 0 && (
-                              <div className="text-[10px] text-emerald-700 font-normal">
-                                پرداخت‌شده قبلی: {formatRial(item.paidAmountSoFar)} (از کل{' '}
-                                {formatRial(item.amount)})
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num text-slate-600 break-words">
-                            <div>{item.inPaymentAt || 'هم‌اکنون'}</div>
-                            <div className="text-[10px] text-slate-500">
-                              {item.inPaymentBy || currentUser.name}
-                            </div>
-                          </td>
-                          <td className="px-2.5 py-2.5">
+                           </>} amountMode="REMAINING">
                             <div className="flex flex-wrap items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => setDetailModalItem(item)}
-                                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded cursor-pointer"
-                                title="مشاهده کامل اطلاعات فرم"
-                              >
-                                <Info className="w-3.5 h-3.5" />
-                              </button>
+                              
                               <button
                                 type="button"
                                 onClick={() => handleMoveItemsBetweenPools([item], 'QUEUE')}
@@ -1614,6 +1306,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                               >
                                 به صف انتظار
                               </button>
+                              {currentUser.effectivePermissions?.canExecutePayment&&treasuryReturnRows(item).length>0&&<button type="button" onClick={()=>setReturnTarget(item)} className="px-2 py-1 text-[11px] font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 rounded cursor-pointer">عودت برای اصلاح</button>}
                               <button
                                 type="button"
                                 onClick={() => openPaymentModal([item])}
@@ -1622,8 +1315,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                                 ثبت پرداخت قطعی
                               </button>
                             </div>
-                          </td>
-                        </tr>
+                          </RequestSummaryRow>
                       );
                     })
                   )}
@@ -1642,17 +1334,17 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
               <div className="space-y-1">
                 <div className="text-xs font-bold text-emerald-950 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                  <span>بخش کلیه پرداختی‌های انجام‌شده (آرشیو جامع تراکنش‌های تسویه‌شده)</span>
+                  <span>بخش کلیه پرداختی‌های انجام‌شده (هر نوبت پرداخت، یک ردیف مستقل)</span>
                 </div>
                 <div className="text-[11px] text-emerald-800 flex flex-wrap items-center gap-4">
                   <span>
-                    تعداد کل اسناد تسویه‌شده:{' '}
-                    <strong className="font-mono-num">{sortedCompleted.length}</strong> سند
+                    تعداد ردیف‌های گزارش پرداخت:{' '}
+                    <strong className="font-mono-num">{sortedCompleted.length}</strong> ردیف
                   </span>
                   <span>
                     جمع کل مبالغ پرداخت‌شده در این فیلتر:{' '}
                     <strong className="font-mono-num text-emerald-950 font-bold">
-                      {formatRial(sortedCompleted.reduce((acc, i) => acc + i.amount, 0))} ریال
+                      {completedSummary.total?.toLocaleString('fa-IR')??'نامشخص؛ تاریخچه ناسازگار است'} ریال
                     </strong>
                   </span>
                 </div>
@@ -1661,6 +1353,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={completedTypeFilter}
+                  aria-label="نوع پرداخت انجام‌شده"
                   onChange={(e) => setCompletedTypeFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs bg-white border border-emerald-300 rounded-lg font-medium text-slate-800"
                 >
@@ -1673,6 +1366,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
                 <select
                   value={completedSourceAccountFilter}
+                  aria-label="حساب مبدأ پرداخت انجام‌شده"
                   onChange={(e) => setCompletedSourceAccountFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs bg-white border border-emerald-300 rounded-lg font-medium text-slate-800"
                 >
@@ -1686,6 +1380,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
                 <select
                   value={completedBankFilter}
+                  aria-label="بانک مبدأ پرداخت انجام‌شده"
                   onChange={(e) => setCompletedBankFilter(e.target.value)}
                   className="px-2.5 py-1.5 text-xs bg-white border border-emerald-300 rounded-lg font-medium text-slate-800"
                 >
@@ -1712,7 +1407,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>
-                    خروجی اکسل کامل پرداختی‌های انجام‌شده (
+                    خروجی اکسل عملیاتی پرداختی‌های انجام‌شده (
                     {selectedCompletedObjects.length > 0
                       ? `${selectedCompletedObjects.length} انتخابی`
                       : `همه ${sortedCompleted.length} مورد`}
@@ -1722,11 +1417,10 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
               </div>
             </div>
 
-            <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full table-auto text-right border-collapse text-xs">
-                <thead>
-                  <tr>
-                    <th className="px-2 py-2.5 border-b border-slate-200 bg-slate-50/90 w-9 text-center">
+            <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="request-record-table request-summary-table w-full text-right border-collapse text-xs">
+                <caption className="text-right p-3 text-slate-600">هر ردیف، مبلغ و بانک مبدأ همان نوبت را نشان می‌دهد؛ حتی اگر تسویهٔ درخواست کامل نشده باشد.{completedSummary.legacy>0&&` ${completedSummary.legacy} ردیف قدیمی فاقد تفکیک نوبت است؛ مبلغ آن جمع ثبت‌شدهٔ قبلی است، نه یک پرداخت احرازشده.`}{completedSummary.issues>0&&<span role="alert" className="block mt-1 text-red-800">تاریخچهٔ {completedSummary.issues} ردیف ناسازگار است؛ جمع قطعی و خروجی این ردیف‌ها تا بررسی مسدود است.</span>}</caption>
+<thead><RequestSummaryHeaders completed sortConfig={completedSort} onSort={handleCompletedSort} selection={<>
                       <input
                         type="checkbox"
                         checked={
@@ -1736,164 +1430,29 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                         onChange={toggleSelectAllCompleted}
                         className="w-4 h-4 rounded border-slate-300 text-emerald-700 cursor-pointer"
                       />
-                    </th>
-                    <SortableHeader
-                      label="کد رهگیری"
-                      field="trackingCode"
-                      type="text"
-                      sortConfig={completedSort}
-                      onSort={handleCompletedSort}
-                    />
-                    <SortableHeader
-                      label="نوع پرداخت"
-                      field="typeLabel"
-                      type="text"
-                      sortConfig={completedSort}
-                      onSort={handleCompletedSort}
-                    />
-                    <SortableHeader
-                      label="عنوان و شرح"
-                      field="title"
-                      type="text"
-                      sortConfig={completedSort}
-                      onSort={handleCompletedSort}
-                    />
-                    <SortableHeader
-                      label="ذینفع / گیرنده وجه"
-                      field="payeeName"
-                      type="text"
-                      sortConfig={completedSort}
-                      onSort={handleCompletedSort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      مشخصات حساب مقصد (ذینفع)
-                    </th>
-                    <SortableHeader
-                      label="مبلغ پرداخت‌شده (ریال)"
-                      field="amount"
-                      type="numeric"
-                      sortConfig={completedSort}
-                      onSort={handleCompletedSort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      حساب بانکی مبدأ (تصویر ثابت زمان پرداخت)
-                    </th>
-                    <SortableHeader
-                      label="شماره مرجع بانکی"
-                      field="bankRefNumber"
-                      type="text"
-                      sortConfig={completedSort}
-                      onSort={handleCompletedSort}
-                    />
-                    <SortableHeader
-                      label="تاریخ تسویه"
-                      field="paidDateJalali"
-                      type="jalali_date"
-                      sortConfig={completedSort}
-                      onSort={handleCompletedSort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      فیش و جزئیات
-                    </th>
-                  </tr>
-                </thead>
+                    </>}/></thead>
                 <tbody className="divide-y divide-slate-200">
                   {sortedCompleted.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={16} className="px-4 py-8 text-center text-slate-500">
                         هیچ پرداخت انجام‌شده‌ای با این فیلتر یافت نشد.
                       </td>
                     </tr>
                   ) : (
-                    sortedCompleted.map((item) => {
+                    sortedCompleted.map((item,rowIndex) => {
                       const checked = selectedCompletedUids.includes(item.uid);
-                      const matchedReceipt = receiptArchives.find(
-                        (r) =>
-                          r.relatedPaymentIds.includes(item.id) ||
-                          r.relatedTrackingCodes.includes(item.trackingCode)
-                      );
-                      const snap = item.sourceAccountSnapshot;
+                      const matchedReceipt = item.receiptObj;
                       return (
-                        <tr
-                          key={item.uid}
-                          className={`hover:bg-emerald-50/30 transition-colors ${
-                            checked ? 'bg-emerald-50/70' : ''
-                          }`}
-                        >
-                          <td className="px-2 py-2.5 text-center">
+                        <RequestSummaryRow key={item.uid} completedItem={item} target={targetFromTreasury(item)} index={rowIndex+1} selection={<> 
                             <input
                               type="checkbox"
                               checked={checked}
                               onChange={() => toggleSelectCompletedItem(item.uid)}
                               className="w-4 h-4 rounded border-slate-300 text-emerald-700 cursor-pointer"
                             />
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-900 break-words">
-                            {item.trackingCode}
-                          </td>
-                          <td className="px-2.5 py-2.5">
-                            <span className="inline-block px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-semibold text-[11px]">
-                              {item.typeLabel}
-                            </span>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-900 font-medium break-words">
-                            <div>{item.title}</div>
-                            <div className="text-[11px] text-slate-500 break-words">
-                              {item.description}
-                            </div>
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-800 font-semibold break-words">
-                            {item.payeeName}
-                          </td>
-                          <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                            <div className="font-semibold text-slate-900">
-                              {item.destinationBank}
-                            </div>
-                            <div className="text-[11px] font-mono-num text-slate-600 break-all">
-                              کارت/حساب: {item.accountOrCard}
-                            </div>
-                            <div className="text-[10px] font-mono-num text-slate-500 break-all">
-                              شبا: {item.iban}
-                            </div>
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-emerald-800">
-                            {formatRial(item.amount)}
-                          </td>
-                          <td className="px-2.5 py-2.5 break-words">
-                            <div className="font-bold text-slate-900">
-                              {snap?.bankName || item.paidBankName || '—'}
-                              {snap?.accountTitle ? ` — ${snap.accountTitle}` : ''}
-                            </div>
-                            {snap?.accountNumber && (
-                              <div className="text-[11px] font-mono-num text-slate-700 break-all">
-                                حساب مبدأ: {snap.accountNumber}
-                              </div>
-                            )}
-                            {snap?.iban && (
-                              <div
-                                className="text-[10px] font-mono-num text-slate-500 break-all"
-                                dir="ltr"
-                              >
-                                {snap.iban}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-800 break-all">
-                            {item.bankRefNumber}
-                          </td>
-                          <td className="px-2.5 py-2.5 font-mono-num text-slate-600">
-                            {item.paidDateJalali}
-                          </td>
-                          <td className="px-2.5 py-2.5">
+                           </>} >
                             <div className="flex flex-wrap items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => setDetailModalItem(item)}
-                                className="px-2 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded cursor-pointer flex items-center gap-1"
-                              >
-                                <Info className="w-3.5 h-3.5" />
-                                <span>فرم کامل</span>
-                              </button>
+                              
                               {matchedReceipt && (
                                 <button
                                   type="button"
@@ -1905,8 +1464,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                                 </button>
                               )}
                             </div>
-                          </td>
-                        </tr>
+                          </RequestSummaryRow>
                       );
                     })
                   )}
@@ -2157,222 +1715,13 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
         {/* =====================================================================
             5. MANUAL / PHONE PAYMENTS
         ===================================================================== */}
+        {subTab==='EXTERNAL_ORDER'&&<div className="pt-4 grid grid-cols-1 lg:grid-cols-12 gap-6"><div className="lg:col-span-5"><ExternalPaymentEntryForm key={'EXTERNAL_ORDER:'+currentUser.id} mode="EXTERNAL_ORDER" user={currentUser} accounts={companyBankAccounts} costCenters={costCenters} requests={paymentRequests} manuals={manualPayments} sourceId="" onSelectSource={()=>{}} onOpenAccount={()=>{}} onSubmit={onCreateManualPayment} onRefresh={onRefreshState}/></div><div className="lg:col-span-7 min-w-0"><h3 className="text-xs font-bold mb-3">دستورهای خارج سامانه ثبت‌شده توسط من</h3><div className="w-full overflow-x-auto border border-slate-200 rounded-lg"><table className="request-record-table request-summary-table w-full text-xs text-right"><thead><RequestSummaryHeaders/></thead><tbody>{paymentRequests.filter(p=>p.externalOrder&&p.requesterId===currentUser.id).map((p,idx)=><RequestSummaryRow key={p.id} target={{kind:'PAYMENT',id:p.id}} index={idx+1}/>)}</tbody></table></div></div></div>}
         {subTab === 'MANUAL' && (
           <div className="pt-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <form
-              onSubmit={handleManualSubmit}
-              className="lg:col-span-5 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3.5"
-            >
-              <h3 className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                <PhoneCall className="w-4 h-4 text-slate-700" />
-                <span>ثبت پرداخت خارج از نوبت (دستور تلفنی یا کاغذی)</span>
-              </h3>
-
-              {manualError && (
-                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 flex items-center gap-1.5">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{manualError}</span>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ذینفع / گیرنده وجه <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={manualPayee}
-                  onChange={(e) => setManualPayee(e.target.value)}
-                  placeholder="نام شخص یا شرکت گیرنده..."
-                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    مبلغ پرداختی (ریال) <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={manualAmount}
-                    onChange={(e) => setManualAmount(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-mono-num"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    تاریخ پرداخت (شمسی)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={manualDate}
-                    onChange={(e) => setManualDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-mono-num"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <SourceBankAccountSelector
-                  accounts={companyBankAccounts}
-                  selectedAccountId={manualSourceAccountId}
-                  onSelectAccount={(acc) => setManualSourceAccountId(acc ? acc.id : '')}
-                  onOpenQuickCreate={() => openBankAccountCreateModal('MANUAL_FORM')}
-                  label="انتخاب حساب بانکی مبدأ پرداخت شرکت"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    شماره پیگیری / مرجع بانکی <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={manualRefNo}
-                    onChange={(e) => setManualRefNo(e.target.value)}
-                    placeholder="مثلاً 8810293844"
-                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-mono-num"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    مرجع دستور (تلفنی / کاغذی)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={manualOrderedBy}
-                    onChange={(e) => setManualOrderedBy(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  بابت / شرح دستور پرداخت
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={manualDescription}
-                  onChange={(e) => setManualDescription(e.target.value)}
-                  placeholder="توضیحات پرداخت فوری..."
-                  className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  بارگذاری فایل فیش بانکی (الزامی یا صدور سیستمی)
-                </label>
-                <label className="flex items-center justify-center gap-2 px-3 py-2 text-xs bg-white border border-dashed border-slate-300 rounded-lg cursor-pointer hover:bg-slate-100 text-slate-700">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{manualReceiptName || 'انتخاب تصویر فیش واریزی'}</span>
-                  <input
-                    type="file"
-                    accept="image/*,.svg"
-                    onChange={(e) => handleReceiptFileChange(e, 'MANUAL')}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSavingManual}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                {isSavingManual ? 'در حال ثبت...' : 'ثبت پرداخت دستی و صدور فیش در بایگانی'}
-              </button>
-            </form>
+            <div className="lg:col-span-5"><ExternalPaymentEntryForm key={'MANUAL:'+currentUser.id} mode="MANUAL" user={currentUser} accounts={companyBankAccounts} costCenters={costCenters} requests={paymentRequests} manuals={manualPayments} sourceId={manualSourceAccountId} onSelectSource={setManualSourceAccountId} onOpenAccount={()=>openBankAccountCreateModal('MANUAL_FORM')} onSubmit={onCreateManualPayment} onRefresh={onRefreshState}/></div>
 
             <div className="lg:col-span-7 w-full border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full table-auto text-right border-collapse text-xs">
-                <thead>
-                  <tr>
-                    <SortableHeader
-                      label="کد سند"
-                      field="trackingCode"
-                      type="text"
-                      sortConfig={manualSort}
-                      onSort={handleManualSort}
-                    />
-                    <SortableHeader
-                      label="ذینفع"
-                      field="payee"
-                      type="text"
-                      sortConfig={manualSort}
-                      onSort={handleManualSort}
-                    />
-                    <SortableHeader
-                      label="مبلغ (ریال)"
-                      field="amount"
-                      type="numeric"
-                      sortConfig={manualSort}
-                      onSort={handleManualSort}
-                    />
-                    <th className="px-2.5 py-2.5 text-right font-semibold text-slate-700 border-b border-slate-200 bg-slate-50/90">
-                      حساب بانکی مبدأ پرداخت
-                    </th>
-                    <SortableHeader
-                      label="دستوردهنده"
-                      field="orderedBy"
-                      type="text"
-                      sortConfig={manualSort}
-                      onSort={handleManualSort}
-                    />
-                    <SortableHeader
-                      label="تاریخ"
-                      field="date"
-                      type="jalali_date"
-                      sortConfig={manualSort}
-                      onSort={handleManualSort}
-                    />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {sortedManual.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50">
-                      <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-900 break-words">
-                        {m.trackingCode}
-                      </td>
-                      <td className="px-2.5 py-2.5 font-semibold text-slate-800 break-words">
-                        <div>{m.payee}</div>
-                        <div className="text-[11px] text-slate-500 font-normal break-words">
-                          {m.description}
-                        </div>
-                      </td>
-                      <td className="px-2.5 py-2.5 font-mono-num font-bold text-slate-950">
-                        {formatRial(m.amount)}
-                      </td>
-                      <td className="px-2.5 py-2.5 text-slate-700 break-words">
-                        <div className="font-bold text-slate-900">
-                          {m.sourceAccountSnapshot?.bankName || m.bankName}
-                          {m.sourceAccountSnapshot?.accountTitle
-                            ? ` — ${m.sourceAccountSnapshot.accountTitle}`
-                            : ''}
-                        </div>
-                        {m.sourceAccountSnapshot?.accountNumber && (
-                          <div className="text-[10px] font-mono-num text-slate-500 break-all">
-                            حساب: {m.sourceAccountSnapshot.accountNumber}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2.5 py-2.5 text-slate-700 break-words">{m.orderedBy}</td>
-                      <td className="px-2.5 py-2.5 font-mono-num text-slate-600">
-                        {m.date}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <table className="request-record-table request-summary-table w-full text-xs text-right"><thead><RequestSummaryHeaders/></thead><tbody>{sortedManual.map((m,idx)=><RequestSummaryRow key={m.id} target={{kind:'MANUAL',id:m.id}} index={idx+1}/>)}</tbody></table>
             </div>
           </div>
         )}
@@ -2396,9 +1745,8 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     تاریخ روکش (شمسی)
                   </label>
-                  <input
-                    type="text"
-                    value={coverDate}
+                  <JalaliDateInput
+                    aria-label="تاریخ روکش (شمسی)" value={coverDate}
                     onChange={(e) => setCoverDate(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-mono-num"
                   />
@@ -2427,8 +1775,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     جمع ورودی‌های روز (ریال)
                   </label>
-                  <input
-                    type="number"
+                  <RialInput
                     value={coverTotalIn}
                     onChange={(e) => setCoverTotalIn(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-mono-num"
@@ -2438,8 +1785,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     کارمزد بانکی پایا/ساتنا (ریال)
                   </label>
-                  <input
-                    type="number"
+                  <RialInput
                     value={coverBankFee}
                     onChange={(e) => setCoverBankFee(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-mono-num"
@@ -2847,228 +2193,6 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
       </section>
 
       {/* =====================================================================
-          Full Form & Batch Items Details Modal
-      ===================================================================== */}
-      {detailModalItem && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white border border-slate-200 rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-xl text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <span>اطلاعات کامل فرم درخواست و پرداخت — کد:</span>
-                  <span className="font-mono-num bg-slate-100 px-2 py-0.5 rounded">
-                    {detailModalItem.trackingCode}
-                  </span>
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  وضعیت فعلی: {getStatusLabel(detailModalItem.status)}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleExportExcelOnly(
-                      [detailModalItem],
-                      `form-${detailModalItem.trackingCode}`,
-                      'اطلاعات فرم'
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-lg cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>خروجی اکسل این فرم</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDetailModalItem(null)}
-                  className="p-1 text-slate-400 hover:text-slate-700 rounded cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <div>
-                <span className="text-slate-500 block">نوع درخواست:</span>
-                <strong className="text-slate-900">{detailModalItem.typeLabel}</strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">عنوان / موضوع:</span>
-                <strong className="text-slate-900">{detailModalItem.title}</strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">ذینفع / گیرنده وجه:</span>
-                <strong className="text-slate-900">{detailModalItem.payeeName}</strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">واحد سازمانی:</span>
-                <strong className="text-slate-900">{detailModalItem.department}</strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">مرکز هزینه:</span>
-                <strong className="text-slate-900">{detailModalItem.costCenter}</strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">مبلغ مصوب کل:</span>
-                <strong className="font-mono-num text-slate-950 font-bold text-sm">
-                  {formatRial(detailModalItem.amount)} ریال
-                </strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">بانک مقصد (ذینفع):</span>
-                <strong className="text-slate-900">{detailModalItem.destinationBank}</strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">شماره کارت / حساب مقصد:</span>
-                <strong className="font-mono-num text-slate-900">
-                  {detailModalItem.accountOrCard}
-                </strong>
-              </div>
-              <div>
-                <span className="text-slate-500 block">شماره شبا مقصد (IBAN):</span>
-                <strong className="font-mono-num text-slate-900">{detailModalItem.iban}</strong>
-              </div>
-              {detailModalItem.sourceAccountSnapshot && (
-                <div className="sm:col-span-2 lg:col-span-3 p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div>
-                    <span className="text-blue-700 text-[11px] block">
-                      بانک و عنوان حساب مبدأ شرکت:
-                    </span>
-                    <strong className="text-blue-950">
-                      {detailModalItem.sourceAccountSnapshot.bankName} —{' '}
-                      {detailModalItem.sourceAccountSnapshot.accountTitle}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-blue-700 text-[11px] block">شماره حساب مبدأ:</span>
-                    <strong className="font-mono-num text-blue-950">
-                      {detailModalItem.sourceAccountSnapshot.accountNumber}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="text-blue-700 text-[11px] block">شماره شبا مبدأ:</span>
-                    <strong className="font-mono-num text-blue-950" dir="ltr">
-                      {detailModalItem.sourceAccountSnapshot.iban || '—'}
-                    </strong>
-                  </div>
-                </div>
-              )}
-              <div className="sm:col-span-2 lg:col-span-3 pt-2 border-t border-slate-200">
-                <span className="text-slate-500 block">شرح کامل فرم:</span>
-                <p className="text-slate-900 font-medium mt-0.5">{detailModalItem.description}</p>
-              </div>
-            </div>
-
-            <OfficialReviewNotes row={detailModalItem.rawPayment || detailModalItem.rawAdvance || detailModalItem.rawBatch}/>
-            {detailModalItem.batchItems?.map(item=><div key={item.id}><OfficialReviewNotes row={item}/></div>)}
-            {detailModalItem.paymentHistory && detailModalItem.paymentHistory.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="font-bold text-slate-900">
-                  سوابق مراحل پرداخت این درخواست ({detailModalItem.paymentHistory.length} مرحله)
-                </h4>
-                <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-                  <table className="w-full table-auto text-right border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="px-2.5 py-2">مرحله</th>
-                        <th className="px-2.5 py-2">مبلغ پرداخت‌شده (ریال)</th>
-                        <th className="px-2.5 py-2">حساب مبدأ شرکت</th>
-                        <th className="px-2.5 py-2">شماره حساب مبدأ</th>
-                        <th className="px-2.5 py-2">شماره پیگیری</th>
-                        <th className="px-2.5 py-2">تاریخ و خزانه‌دار</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {detailModalItem.paymentHistory.map((ph, idx) => (
-                        <tr key={ph.id}>
-                          <td className="px-2.5 py-2 font-mono-num">{idx + 1}</td>
-                          <td className="px-2.5 py-2 font-mono-num font-bold text-emerald-800">
-                            {formatRial(ph.amount)}
-                          </td>
-                          <td className="px-2.5 py-2 font-semibold text-slate-900 break-words">
-                            {ph.sourceAccountSnapshot?.bankName || ph.paidBankName || '—'} —{' '}
-                            {ph.sourceAccountSnapshot?.accountTitle || ''}
-                          </td>
-                          <td className="px-2.5 py-2 font-mono-num text-slate-800 break-all">
-                            {ph.sourceAccountSnapshot?.accountNumber || '—'}
-                          </td>
-                          <td className="px-2.5 py-2 font-mono-num font-bold text-slate-900 break-all">
-                            {ph.bankRefNumber || ph.trackingCode || '—'}
-                          </td>
-                          <td className="px-2.5 py-2 text-slate-600 break-words">
-                            {ph.executedDateJalali || ph.paidDateJalali || ph.dateJalali || '—'} —{' '}
-                            {ph.executedByUserName || ph.treasuryUserName || ph.executedByName || 'خزانه‌دار'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {detailModalItem.batchItems && detailModalItem.batchItems.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="font-bold text-slate-900">
-                  ریز اقلام و ذینفعان لیست تجمیعی ({detailModalItem.batchItems.length} ردیف)
-                </h4>
-                <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-                  <table className="w-full table-auto text-right border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="px-2.5 py-2">ردیف</th>
-                        <th className="px-2.5 py-2">ذینفع</th>
-                        <th className="px-2.5 py-2">مرکز هزینه</th>
-                        <th className="px-2.5 py-2">بانک مقصد</th>
-                        <th className="px-2.5 py-2">شماره کارت / حساب</th>
-                        <th className="px-2.5 py-2">شماره شبا</th>
-                        <th className="px-2.5 py-2">مبلغ قابل پرداخت (ریال)</th>
-                        <th className="px-2.5 py-2">شرح</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {detailModalItem.batchItems.map((sub, idx) => (
-                        <tr key={sub.id} className="hover:bg-slate-50">
-                          <td className="px-2.5 py-2 font-mono-num">{idx + 1}</td>
-                          <td className="px-2.5 py-2 font-bold text-slate-900 break-words">{sub.payeeName}</td>
-                          <td className="px-2.5 py-2 text-slate-700 break-words">{sub.costCenter}</td>
-                          <td className="px-2.5 py-2 text-slate-700 break-words">{sub.bankName}</td>
-                          <td className="px-2.5 py-2 font-mono-num text-slate-800 break-all">
-                            {sub.accountOrCard}
-                          </td>
-                          <td className="px-2.5 py-2 font-mono-num text-slate-600 break-all">{sub.iban}</td>
-                          <td className="px-2.5 py-2 font-mono-num font-bold text-slate-950">
-                            {formatRial(sub.approvedAmount ?? sub.amount)}
-                          </td>
-                          <td className="px-2.5 py-2 text-slate-600 break-words">{sub.description}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setDetailModalItem(null)}
-                className="px-4 py-2 bg-slate-900 text-white font-semibold rounded-lg cursor-pointer"
-              >
-                بستن پنجره
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =====================================================================
           Payment Execution Modal (With Source Bank Account Selector & Partial Payment)
       ===================================================================== */}
       {paymentModalItems && (
@@ -3142,8 +2266,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                     <label className="block font-bold text-slate-800 mb-1">
                       مبلغ پرداخت این نوبت (ریال) — امکان پرداخت کامل یا جزئی تا سقف مانده:
                     </label>
-                    <input
-                      type="text"
+                    <RialInput
                       required
                       value={partialPaymentAmount}
                       onChange={(e) => setPartialPaymentAmount(e.target.value)}
@@ -3209,34 +2332,16 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   <label className="block font-semibold text-slate-700 mb-1">
                     تاریخ پرداخت (شمسی)
                   </label>
-                  <input
-                    type="text"
+                  <JalaliDateInput
                     required
-                    value={execDateJalali}
+                    aria-label="تاریخ پرداخت (شمسی)" value={execDateJalali}
                     onChange={(e) => setExecDateJalali(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono-num"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  پیوست تصویر فیش بانکی
-                </label>
-                <label className="flex items-center justify-center p-3 border border-dashed border-slate-300 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer text-slate-600">
-                  <Upload className="w-4 h-4 ml-1.5" />
-                  <span>
-                    {uploadedReceiptName ||
-                      'انتخاب فایل فیش بانکی (یا صدور رسید سیستمی با مشخصات حساب مبدأ)'}
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*,.svg"
-                    onChange={(e) => handleReceiptFileChange(e, 'MODAL')}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+              <ReceiptUpload key={paymentGeneration.current} value={uploadedReceiptDataUrl?{url:uploadedReceiptDataUrl,name:uploadedReceiptName}:null} onChange={file=>{setUploadedReceiptDataUrl(file?.url||'');setUploadedReceiptName(file?.name||'');}} onStatusChange={changeReceiptStatus} disabled={isPaying||!!recoveredReceipt} label="پیوست فیش بانکی (اختیاری؛ در نبود آن رسید سیستمی صادر می‌شود)"/>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
                 <button
@@ -3249,7 +2354,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isPaying || !selectedModalSourceAccount || !!recoveredReceipt}
+                  disabled={isPaying || receiptStatus.busy || !!receiptStatus.error || !selectedModalSourceAccount || !!recoveredReceipt}
                   className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-semibold rounded-lg cursor-pointer"
                 >
                   {isPaying
@@ -3388,7 +2493,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   <label className="block font-bold text-slate-700 mb-1">
                     شماره شبا (IBAN — ۲۶ کاراکتر با IR)
                   </label>
-                  <input
+                  <IbanInput
                     type="text"
                     dir="ltr"
                     value={formIban}
@@ -3402,7 +2507,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                   <label className="block font-bold text-slate-700 mb-1">
                     شماره کارت متصل به حساب (۱۶ رقم اختیاری)
                   </label>
-                  <input
+                  <CardInput
                     type="text"
                     dir="ltr"
                     value={formCardNumber}

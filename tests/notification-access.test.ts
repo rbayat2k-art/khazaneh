@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {notificationVisible} from '../src/server/notification-access';
-const viewer:any={id:'TEST-A',role:'REQUESTER',isActive:true},db:any={receiptArchives:[{id:'TEST-MIXED',relatedPaymentIds:['TEST-A','TEST-B']},{id:'TEST-OWN',relatedPaymentIds:['TEST-A']}]};
+const viewer:any={id:'TEST-A',role:'REQUESTER',isActive:true},db:any={advanceRequests:[],paymentRequests:[],batchPayments:[],receiptArchives:[{id:'TEST-MIXED',relatedPaymentIds:['TEST-A','TEST-B']},{id:'TEST-OWN',relatedPaymentIds:['TEST-A']}]};
 const n:any={eventType:'PAYMENT_EXECUTED',requestId:'TEST-A',recipientRole:'REQUESTER',receiptId:'TEST-MIXED'};
 test('payment notifications require all server receipt targets; one visible target or a legacy first target is not sufficient',()=>{
  assert.equal(notificationVisible(n,viewer,db,id=>id==='TEST-A'),false);assert.equal(notificationVisible({...n,receiptId:undefined},viewer,db,()=>true),false);assert.equal(notificationVisible({...n,receiptId:'MISSING'},viewer,db,()=>true),false);

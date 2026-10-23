@@ -32,6 +32,12 @@ export function createMutationRoutes(app:Pick<Express,'post'|'delete'>,authorize
     void operation.catch(next);
   };
   return {
+    // Trusted background commands use the same writer turn, not a parallel store.
+    run:<T,>(work:()=>T|Promise<T>):Promise<T>=>{
+      if(!accepting)return Promise.reject(new Error('Writer is draining'));
+      const operation=tail.then(async()=>{try{return await work();}finally{await new Promise<void>(resolve=>setImmediate(resolve));}});
+      tail=operation.then(()=>{},()=>{});return operation;
+    },
     drain:()=>{accepting=false;return tail;},
     post:(path:string,handler:Handler)=>app.post(path,wrap(handler)),
     delete:(path:string,handler:Handler)=>app.delete(path,wrap(handler)),

@@ -11,6 +11,7 @@ import { canEditSubmittedRequest } from '../src/utils/request-edit';
 import {assessBankImport} from '../src/utils/bank-account-import';
 import {SqliteRecords} from '../src/server/sqlite-records';
 import {StateSyncClient} from '../src/utils/state-sync';
+import {requestFixture} from './request-fixture.cjs';
 
 const root = process.env.TREASURY_TEST_DIR;
 if (!root || path.resolve(root) === path.resolve('data')) throw new Error('Set TREASURY_TEST_DIR to a disposable directory outside the live data directory.');
@@ -39,6 +40,7 @@ const fixture: any = { users, roleConfigs, companies: [], departments: [], costC
   advanceRequests: [], paymentRequests: [], batchPayments: [], manualPayments: [], dailyCovers: [], receiptArchives: [],
   notifications: [], securityAuditLogs: [], passwordRecoveryRequests: [], sessions: [], smsLogs: [],
   smsConfig: { enabled: false, provider: 'KAVENEGAR', apiUrl: '', senderNumber: '', events: {} } };
+fixture.costCenters.push({id:'TEST-cost',code:'TEST',name:'TEST',companyName:'TEST',isActive:true});
 // An explicitly synthetic pre-upgrade record, written before starting the isolated server.
 fixture.paymentRequests.push({id:'TEST-legacy-bank-revision',trackingCode:'TEST-LEGACY-BANK-REVISION',requesterId:'requester',requesterName:'TEST requester',department:'TEST',supervisorId:'approver',supervisorName:'TEST approver',status:'Needs_Revision',version:1,amount:12000,initialAmount:12000,description:'TEST legacy banking separators',payeeName:'TEST legacy recipient',accountOrCard:'0000-0000-0000-0001',iban:'IR00 '+ '0'.repeat(21)+'1',bankName:'بانک ملت',costCenter:'TEST',priority:'Normal',createdAt:'1405/07/29',dueDate:'1405/07/29',approvedBySupervisorUserId:'approver',approvedBySupervisorName:'TEST approver',approvedBySupervisorAt:'TEST',returnedByRole:'ACCOUNTING',returnedByUserId:'accounting',returnedReason:'TEST document correction',comments:[],attachments:[],auditHistory:[{id:'TEST-legacy-submit',action:'TEST submit',actorId:'requester',stage:'REQUESTER',decision:'SUBMIT',version:1,changedBy:'TEST requester',changedAt:'TEST'},{id:'TEST-legacy-approval',action:'TEST approve',actorId:'approver',stage:'APPROVER',decision:'APPROVE',version:1,changedBy:'TEST approver',changedAt:'TEST'},{id:'TEST-legacy-return',action:'TEST return',actorId:'accounting',stage:'ACCOUNTING',decision:'RETURN_FOR_REVISION',version:1,changedBy:'TEST accounting',changedAt:'TEST'}]});
 fixture.paymentRequests.push({...structuredClone(fixture.paymentRequests[0]),id:'TEST-legacy-numeric-bank',trackingCode:'TEST-LEGACY-NUMERIC-BANK',accountOrCard:1234567890123456});
@@ -48,6 +50,7 @@ const tokens: Record<string,string> = {};
 let requestId: string;
 let stdout = '';
 async function api(route: string, user?: string, body?: any, method = body === undefined ? 'GET' : 'POST') {
+  body=requestFixture(route,body);
   const response = await fetch(base + '/api' + route, { method, headers: { 'Content-Type':'application/json', ...(user ? { Authorization: `Bearer ${tokens[user] || user}` } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const data = response.headers.get('content-type')?.includes('application/json') ? await response.json() : {error:'Non-JSON HTTP response'};
   return { status: response.status, data };
@@ -142,7 +145,8 @@ test('bank validation covers both group kinds, child amendments and resubmission
     assert.equal((await api('/review/row-action','approver',{...target,action:'RETURN_FOR_REVISION',returnReason:'TEST bank correction'})).status,200);
     await api('/state','admin'); // Settle existing return normalization before comparing the failed mutation boundary.
     const snapshot=readStore();assert.equal((await api('/requests/resubmit','requester',{...target,accountOrCard:'0'.repeat(17)})).status,400);assertStoreUnchanged(snapshot);
-    assert.equal((await api('/requests/resubmit','requester',{...target,accountOrCard:'',iban:''})).status,200);
+    assert.equal((await api('/requests/resubmit','requester',{...target,accountOrCard:'',iban:''})).status,batchType==='ADVANCE'?200:400);
+    if(batchType==='PAYMENT'){assertStoreUnchanged(snapshot);assert.equal((await api('/requests/resubmit','requester',{...target,accountOrCard:'0'.repeat(16),iban:''})).status,200);}
   }
 });
 
@@ -941,11 +945,11 @@ test('real API enforces company scope, role union, empty revocation and authoriz
     const smsBefore=JSON.parse(readStore()).smsLogs.length;fs.writeFileSync(path.join(root!,'test-fail-next-commit'),'TEST');assert.equal((await api('/treasury/execute-payment',id,command)).status,500);await new Promise(r=>setTimeout(r,30));assert.equal(JSON.parse(readStore()).smsLogs.length,smsBefore,'a failed financial commit cannot trigger a payment SMS log');assert.equal(JSON.parse(readStore()).paymentRequests.find((r:any)=>r.id==='SYN-PAY-B').paidAmountSoFar,0);
     const paid=await api('/treasury/execute-payment',id,command);assert.equal(paid.status,200);assert.equal(paid.data.state.paymentRequests.find((r:any)=>r.id==='SYN-PAY-B').paidAmountSoFar,50);assert.ok(paid.data.state.receiptArchives.some((r:any)=>r.relatedPaymentIds.includes('SYN-PAY-B')));
     const mixed=await api('/treasury/execute-payment',id,{...command,items:[{type:'PAYMENT',id:'SYN-PAY-A'},{type:'PAYMENT',id:'SYN-PAY-B'}],paymentAmount:undefined,idempotencyKey:'SYN-COMP-MIXED'});assert.equal(mixed.status,200);assert.equal(mixed.data.receipt.amount,150);
-    let sms:any[]=[];for(let i=0;i<30;i++){sms=JSON.parse(readStore()).smsLogs.filter((l:any)=>l.eventType==='PAYMENT_EXECUTED'&&l.relatedTrackingCode==='TEST-COMP-A');if(sms.length)break;await new Promise(r=>setTimeout(r,10));}assert.equal(sms.length,1);assert.ok(sms.every(l=>l.recipientPhone==='09000000003'),'SMS selects the user authorized for every target, not the first requester role');
+    let sms:any[]=[];for(let i=0;i<30;i++){sms=JSON.parse(readStore()).smsLogs.filter((l:any)=>l.eventType==='PAYMENT_EXECUTED'&&l.relatedTrackingCode==='TEST-COMP-A');if(sms.length)break;await new Promise(r=>setTimeout(r,10));}assert.equal(sms.length,1);assert.ok(sms.every(l=>l.recipientPhone==='09000000002'),'SMS goes to the actual owner of this company subtotal, never a different observer with a requester role');
     const restricted=JSON.parse(readStore());restricted.users.find((u:any)=>u.id===id).accessScope='SELF_ONLY';writeStore(JSON.stringify(restricted));const covers=restricted.dailyCovers.length,covered=restricted.paymentRequests.find((r:any)=>r.id==='SYN-PAY-A'),date=covered.paidDateJalali,bankName=covered.paidBankName;assert.ok(date&&bankName);assert.equal(restricted.paymentRequests.filter((r:any)=>r.status==='Paid'&&r.paidDateJalali===date&&r.paidBankName===bankName).length,2,'fixture must match actual persisted bank label and both paid targets');
     assert.equal((await api('/treasury/daily-cover',id,{date,bankName,totalIn:0,bankFee:0})).status,403,'cover aggregation must retain resource visibility, not company membership alone');assert.equal(JSON.parse(readStore()).dailyCovers.length,covers);delete restricted.users.find((u:any)=>u.id===id).accessScope;writeStore(JSON.stringify(restricted));
     const revoked=await api('/roles/save','admin',{role:'SYN_COMP_B',allowedCompanies:[]});assert.equal(revoked.status,200);assert.deepEqual(JSON.parse(readStore()).roleConfigs.find((r:any)=>r.role==='SYN_COMP_B').allowedCompanies,[]);
-    state=(await api('/state',id)).data;assert.ok(!state.paymentRequests.some((r:any)=>r.id==='SYN-PAY-B'));assert.ok(!state.receiptArchives.some((r:any)=>r.relatedPaymentIds.includes('SYN-PAY-B')));assert.ok(!state.notifications.some((n:any)=>n.eventType==='PAYMENT_EXECUTED'&&n.requestId==='SYN-PAY-A'),'a first visible target must not disclose an aggregate mixed-company notification');assert.equal((await api('/treasury/execute-payment',id,command)).status,403);
+    state=(await api('/state',id)).data;assert.ok(!state.paymentRequests.some((r:any)=>r.id==='SYN-PAY-B'));assert.ok(!state.receiptArchives.some((r:any)=>r.relatedPaymentIds.includes('SYN-PAY-B')));assert.ok(!state.notifications.some((n:any)=>n.eventType==='PAYMENT_EXECUTED'&&n.requestId==='SYN-PAY-A'),'another requester-role observer cannot receive a private owner payment notification');assert.equal((await api('/treasury/execute-payment',id,command)).status,403);
     const saved=JSON.parse(readStore()).paymentRequests.find((r:any)=>r.id==='SYN-PAY-B');assert.equal(saved.paidAmountSoFar,100);assert.equal(saved.paymentHistory.length,2);
   }finally{writeStore(before);}
 });
@@ -958,6 +962,7 @@ test('real API pages and deltas preserve records and recheck authorization witho
     writeStore(JSON.stringify(db));
     const client=new StateSyncClient();
     const raw=async(route:string,user='requester',body?:any,extra:Record<string,string>={})=>{
+      body=requestFixture(route,body);
       const response=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',Authorization:'Bearer '+tokens[user],...client.headers(),...extra},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,body:await response.json()};
     };
     const get=async(route:string)=>{const r=await raw(route.slice(4));if(r.status!==200)throw Object.assign(Error('TEST sync request rejected'),{syncExpired:r.body.syncExpired});return r.body;};

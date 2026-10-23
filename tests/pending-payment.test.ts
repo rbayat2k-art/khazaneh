@@ -13,6 +13,22 @@ test('shared lock serializes tabs; an ambiguous overlapping attempt never receiv
  await Promise.all([1,2].map(()=>trackedPayment(store,lock,'SYN',['PAY:SYN'],fingerprint,()=>true,async key=>{keys.push(key);await new Promise(r=>setTimeout(r,10));return {ok:false,ambiguous:true};})));
  assert.equal(keys.length,2);assert.equal(new Set(keys).size,1);let sent=false;await trackedPayment(store,lock,'SYN',['PAY:SYN','PAY:OTHER'],fingerprint,()=>true,async()=>{sent=true;return {ok:true};});assert.equal(sent,false);
 });
+
+test('create-entry success keeps one operation across queued tabs until an explicit new entry',async()=>{
+ const store=storage(),lock=mutex(),fingerprint=await paymentFingerprint({amount:5000}),keys:string[]=[];
+ const send=async(key:string)=>{keys.push(key);await new Promise(r=>setTimeout(r,10));return {ok:true};};
+ await Promise.all([1,2].map(()=>trackedPayment(store,lock,'SYN',['ENTRY:MANUAL'],fingerprint,()=>true,send,true)));
+ assert.equal(keys.length,2);assert.equal(new Set(keys).size,1);assert.equal(readPendingPayments(store,'SYN').length,1);
+ await clearPendingPayment(store,lock,'SYN',keys[0]);
+ await trackedPayment(store,lock,'SYN',['ENTRY:MANUAL'],fingerprint,()=>true,send,true);
+ assert.notEqual(keys[2],keys[0]);
+});
+
+test('ordinary confirmed payment still clears its operation by default',async()=>{
+ const store=storage(),lock=mutex(),fingerprint=await paymentFingerprint({amount:5000});
+ await trackedPayment(store,lock,'SYN',['PAY:SYN'],fingerprint,()=>true,async()=>({ok:true}));
+ assert.deepEqual(readPendingPayments(store,'SYN'),[]);
+});
 test('failed storage and changed identity prevent sending; denied recovery never clears an old unknown handle',async()=>{
  const store=storage(),lock=mutex(),fingerprint=await paymentFingerprint({amount:5000});let sent=false;
  await assert.rejects(()=>trackedPayment({...store,setItem:()=>{throw Error('SYN quota');}},lock,'SYN',['PAY:SYN'],fingerprint,()=>true,async()=>{sent=true;return {ok:true};}));assert.equal(sent,false);

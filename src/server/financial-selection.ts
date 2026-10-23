@@ -1,6 +1,6 @@
 // Only raw COMPANY_WIDE financial selections; never sessions, grants or files.
 type Row={id:string};
-const dependencies=['id','requesterId','companyId','company','companyName'];
+const dependencies=['id','requesterId','companyId','company','companyName','requesterDeletedAt'];
 export function immutableScalars(value:any,fields:string[],required:string[]=[]):boolean {
  if(!value||typeof value!=='object'||!Object.isFrozen(value)||![Object.prototype,null].includes(Object.getPrototypeOf(value)))return false;
  for(const field of fields){const descriptor=Object.getOwnPropertyDescriptor(value,field);if(!descriptor){if(required.includes(field)||field in value)return false;continue;}

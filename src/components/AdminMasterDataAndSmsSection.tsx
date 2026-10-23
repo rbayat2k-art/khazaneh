@@ -429,7 +429,7 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
                 <div>
                   <div className="text-xs font-bold text-slate-900">وضعیت فعال‌سازی ارسال پیامک</div>
                   <div className="text-[11px] text-slate-500">
-                    در صورت غیرفعال بودن، هیچ پیامک شبیه‌سازی‌شده‌ای جعل نمی‌شود و وضعیت واقعی اعلام می‌گردد.
+                    پیامک شخصی فقط به مخاطب مشخص و پیامک صف به همهٔ افراد مجاز همان مرحله ارسال می‌شود. درگاه غیرفعال پیامک واقعی نمی‌فرستد.
                   </div>
                 </div>
                 <label className="inline-flex items-center gap-2 cursor-pointer">
