@@ -1,10 +1,14 @@
-# Khazaneh — پرتال خزانه و درخواست‌های مالی
+# سامانه جامع مالی و خزانه داری شاهراه — Khazaneh
 
-## وضعیت جاری — v50 منتشرشده؛ چارچوب مهندسی متصل
+## وضعیت جاری — v53f منتشرشده؛ منوها و اختیارات تفکیک‌شده
+
+پس از پذیرش صریح Staging، [نسخهٔ v53f](docs/operations/release-v53-menu-permissions.md) روی دامنه منتشر شد: ۹ کارت مستقل با نام دقیق منو،۶۵ کنترل و۴۰مسیر زیرمنو؛ اختیار نمایش و عملیات جداست. داده، رمزها، کلیدها و تمام تنظیمات نقش‌های فعلی حفظ شدند؛ تغییر جمعی مجوز انجام نشد.
+
+manifest=`e845223b6489f8abe1fd385df7a9cbbb6e80c7a621b5038b47fea864f1c0043e`؛ همان SQLite/schema۱. ۴۱۲تست هرJSON/SQLite،۱۶مسیرمرورگر،Linux rollback با دادهٔ جاری و بکاپ/restore مستقل PASS؛ health و کنترل عمومی پس انتشار PASS. [Baseline جاری](docs/engineering/BASELINE.md) و رکورد انتشار مرجع‌اند. شاخه `codex/menu-permissions-v53`؛ commit/push تازه انجام نشد. نسخه‌های v52b/v51 در ادامه تاریخچه‌اند، نه وضعیت فعلی.
 
 فرایند مصوبِ تمام تغییرات آینده: **توسعه و تست → [Staging خصوصی](docs/operations/development-staging-release.md) → تأیید صریح مالک → انتشار کنترل‌شده**. راه‌اندازی Staging یا درخواست توسعه، مجوز انتشار Production نیست.
 
-مرجع شروع توسعه: [AGENTS.md](AGENTS.md)، [Baseline نسخهٔ v50](docs/engineering/BASELINE.md) و [قواعد اختصاصی خزانه](docs/engineering/business-rules.md). نسخهٔ واقعاً منتشرشده روی شاهراه manifest `abd40ac3ff0a1da8fcc8e9e5a71d50d2fb5c72e455851b77c2f83826b8a7f314` و SQLite است؛ سورس freeze در Git `5cb1859f7dd194dec071b4ff7d0a15fe561bcec1` است. [گزارش نهایی v50 و حدود آزمون](docs/operations/release-v50-readiness.md) را بخوانید. داده‌ها، پیوست‌ها و رمز admin حفظ شدند؛ ارسال واقعی پیامک و استعلام بانکی همچنان غیرفعال‌اند. با مجوز مالک، سورس جاری در [مخزن رسمی](https://github.com/rbayat2k-art/khazaneh) ذخیره شده؛ [محدودهٔ snapshot و فایل‌های خصوصیِ خارج از Git](docs/engineering/GITHUB-SNAPSHOT.md) را بخوانید. شواهد انتشار و بازیابی در **بخش بالای** [production-hardening](docs/operations/production-hardening.md) است. بخش‌های نسخه‌های قبلی زیر، تاریخچه‌اند؛ وضعیت جاری یا مجوز حذف/انتشار آینده نیستند.
+مرجع شروع: [AGENTS.md](AGENTS.md)، [Baseline v51](docs/engineering/BASELINE.md) و [قواعد خزانه](docs/engineering/business-rules.md). نسخهٔ زنده manifest `846bab97482f626acddee831b4772e18e43cac46a1ce338bb15328b000a94688` و همان SQLite جاری است؛ [گزارش v51،آزمون‌ها،محدودیت وrollback](docs/operations/release-v51-inquiry-settings.md). داده،پیوست و رمزadmin حفظ شدند. تنظیمات امن اتصال روی دامنه آماده است،ولی بدون کلید/فعال‌سازی مالک مصرف واقعی شروع نمی‌شود؛ سایر سرویس‌های واقعی خاموش‌اند. Git مبنا6d5882b؛تغییراتv51 درشاخهcodex/inquiry-settings-v51 وبدونcommit/pushتازه‌اند؛ [مخزن رسمی](https://github.com/rbayat2k-art/khazaneh) هنوزsnapshotv50 را دارد. [مرز فایل‌های خصوصی](docs/engineering/GITHUB-SNAPSHOT.md) و بالای [production-hardening](docs/operations/production-hardening.md) را ببینید. نوشته‌های نسخه‌های پایین تاریخچه‌اند،نه وضعیت جاری یا مجوز حذف/نشر آینده.
 
 ## checkpoint تاریخی v22 — انتشار در آن مرحله متوقف بود
 

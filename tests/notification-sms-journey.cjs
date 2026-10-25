@@ -28,7 +28,7 @@ async function openSms(page){const entry=page.getByRole('button',{name:/ساما
  await reload(page);await openSms(page);const key=page.getByPlaceholder('•••••••••••••••• (برای تغییر وارد کنید)',{exact:true});
  assert.equal(await key.inputValue(),'');assert.equal((await page.locator('body').innerText()).includes('TEST-WRITE-ONLY-KEY'),false);
  waiting=page.waitForResponse(r=>r.url().endsWith('/api/sms/config')&&r.request().method()==='POST');await page.getByRole('button',{name:'ذخیره تنظیمات درگاه پیامک',exact:true}).click();assert.equal((await waiting).status(),200);assert.equal(state().smsConfig.apiKey,'TEST-WRITE-ONLY-KEY');
- await page.getByPlaceholder('0912...').fill('09000000000');await page.getByPlaceholder('پیامک تست اتصال درگاه پرتال خزانه‌داری آریا').fill('TEST NO EXTERNAL SMS');
+ await page.getByPlaceholder('0912...').fill('09000000000');await page.getByPlaceholder('پیامک تست اتصال درگاه پرتال خزانه‌داری شاهراه').fill('TEST NO EXTERNAL SMS');
  waiting=page.waitForResponse(r=>r.url().endsWith('/api/sms/test')&&r.request().method()==='POST');await page.getByRole('button',{name:'ارسال پیامک آزمایشی',exact:true}).click();
  const response=await waiting,result=await response.json();assert.equal(response.status(),200);
  assert.equal(result.success,false,'A blocked provider must not claim a real SMS was sent');assert.equal(result.status,'SKIPPED_DISABLED');

@@ -1,6 +1,32 @@
-# خط مبنای مهندسی شاهراه — KHZ-BASELINE-v50-20261023
+# خط مبنای مهندسی شاهراه — KHZ-BASELINE-v55-20261024
 
-## مبنای فعال v50 — PASS
+## مبنای فعال v55 — PASS / DEPLOYED
+
+[جست‌وجوی نام/کد مرکز هزینه در تمام۵انتخابگر](../operations/release-v55-cost-center-search.md)، manifest=`86778ed21002a4d1ec37f63c59a2074452b5085e62b06b42829f7598cf0a7566`، بازگشایی12:40:01UTC،۲۰۲۶/۱۰/۲۴. فهرست native/value/name/ID/required و scope قبلی حفظ؛ فقط UI عوض شد، backend/storage با v54b byte-identical.۲۹تست مرتبط،۸مسیر مرورگر،Staging و بکاپ/restore تازه/health PASS. تمام rawDB/رمز/نقش/روابط/کلیدها برابر؛ بدون schema/migration/reset/commit/push جدید. Stage جاری `ops/private/permanent-staging-cost-center-v55` با همان رمزها؛ شاهدهای بازاستفاده‌شده و NOT RUNها در رکورد نسخه صریح‌اند. بخش‌های فعال پایین تاریخی‌اند.
+
+## مبنای فعال v54b — PASS / DEPLOYED
+
+[انتخاب شرکت‌های مجاز نقش](../operations/release-v54-role-companies.md)، manifest=`c04924ad94ba0b14026a0778bf15ebfa53de64b5a4ff0fbe08ef393f5afa94b6`، بازگشایی ۲۰۲۶/۱۰/۲۴ ساعت11:32:23UTC. با مجوز صریح، فقط فهرست شرکت APPROVER به یک شرکت موجود و metadata/audit مربوط تغییر کرد؛ همهٔ سایر داده‌ها/رمزها/نشست‌ها/مجوزها/روابط برابر ماندند. UI مدیریت شرکت، CAS و اعتبارسنجی اضافه شد؛ ۴۱۷تست هر adapter، مرورگر و Linux patch/rollbackCURRENT و بکاپ/restore مستقل PASS. همان schema۱ و بدون migration/reset/commit/push جدید. Staging جاری `ops/private/permanent-staging-role-companies-v54`؛ رمزهای قبلی محفوظ. وضعیت‌های فعال پایین تاریخچه‌اند؛ جزئیات و NOT RUNها در رکورد انتشار مرجع‌اند.
+
+## مبنای فعال v53f — PASS / DEPLOYED
+
+با پذیرش صریح مالک، [همان v53f آزموده‌شده منتشر شد](../operations/release-v53-menu-permissions.md)؛ manifest=`e845223b6489f8abe1fd385df7a9cbbb6e80c7a621b5038b47fea864f1c0043e`. ۹منوی مستقل/۶۵کنترل، تمام rawDB/رمز/vault/تنظیمات نقش جاری برابر، بدونmigration/reset یا اعطای اختیار جدید. ۴۱۲تست هرadapter،۱۶UI،Linux حفظ حقوق عملیاتی۸حساب وrollback باثبت‌های تازه،بکاپ/restore خارج سرور وhealth/public browser PASS. Production وStaging همینartifact را دارند ولی داده/نشست/کلیدشان مستقل‌اند. recordانتشار بر وضعیت Stage-only وFAIL تاریخی بخش‌های پایین مقدم است؛ محدودیت ناوبری rollback وNOT RUNهای واقعی در آن صریح‌اند.
+
+## سابقهٔ نامزد v53f پیش از پذیرش — PASS، فقط Staging
+
+[تفکیک منوها و اختیارات](../operations/staging-v53-menu-permissions.md) روی Staging خصوصی `ops/private/permanent-staging-menu-permissions-v53` در `http://127.0.0.1:55120/` آمادهٔ پذیرش مالک است؛ manifest=`e845223b6489f8abe1fd385df7a9cbbb6e80c7a621b5038b47fea864f1c0043e`. ۹کارت مستقل با نام دقیق Sidebar،۶۵کنترل و۴۰مسیر زیرمنو؛ ۴۱۲تست هر adapter SQLite/JSON و۱۶مسیر مرورگر PASS. داده، vault، رمزهای Stage و schema۱ حفظ؛ migration/reset و commit/push جدید انجام نشد. شاخه `codex/menu-permissions-v53`، HEAD مبنا همان6d5882b است. Production هنوز v52b پایین است؛ این بخش مجوز انتشار نیست. پذیرش مالک و انتشار این نامزد NOT RUN؛ ممیزی FAIL تاریخی پایین، با رکورد اصلاح جدید لینک شده و پاک نشده است.
+
+## مبنای فعال v52b — PASS / DEPLOYED
+
+**محدودیت تازهٔ مشاهده‌شده:** [ممیزی منو و مجوزها](access-menu-audit-v52.md) پس از انتشار برند،۹ناسازگاری UI/تنظیمات را ثبت کرد؛ وضعیت ممیزی **FAIL** است. ۸۸تست موجود و۵مسیرمرورگرPASS،ولی probeجدیدِ تیکثبت/اختیارقدیمی و «انتخاب همه» نقص را اثبات کرد. اصلاحاینموارد یا تغییرمجوزهای واقعی دراینممیزی انجامنشد؛ موفقیت انتشاربرند بهمعنیPASSجامعکنترل‌ها نیست.
+
+[نام نمایشی شاهراه و رفع کش تصویر](../operations/release-v52-branding.md)، manifest=`2b1371f9f187e9b221615b7ebe62778abca0459f4a3deb47c6627bfbead9934e`؛ همانSQLite/schema1/DB/vault/رمزهای جاری، بدونreset/migration یا تغییرمجوز. زمانکنترل نهایی09:52:58UTC،۲۰۲۶/۱۰/۲۴. شاخهcodex/branding-v52،HEADهمان6d5882b؛ تغییراتv51محفوظ،commit/pushجدید انجامنشد. Stagingجاری `ops/private/permanent-staging-branding-v52b` باهمانرمزهاست. جزئیاتگیت،نسخهٔ میانی،بکاپ/restore،rollbackCURRENT data و حدودآزمون دررکوردانتشاراست؛ نسخه‌های پایین تاریخچه‌اند.
+
+## مبنای قبلی v51 — PASS
+
+منتشرشده در `2026-10-24T09:01:52.090Z`؛ manifest=`846bab97482f626acddee831b4772e18e43cac46a1ce338bb15328b000a94688`،۳۸خروجی/۱۰۷منبع،همانSQLite1 و تمام DB/رمزها/فایل‌های جاری بدون تغییر. [گزارش v51 و بازگشت آزموده‌شده](../operations/release-v51-inquiry-settings.md) و [ADR-018](../decisions/ADR-018-production-inquiry-connection-management.md) مرجع‌اند. مدیریت امن اتصال در Production موجود است، ولی بدون کلید و پذیرش صریح اتصال هیچ مصرف واقعی فعال نیست. ۳۹۰تست SQLite،suite نهایی JSON،مرورگر وrestore/rollback Linux PASS؛ شکست تک‌موردی JSON غیرقابل‌بازتولید همچنان در گزارش باز است. Git مبنا6d5882b؛تغییراتv51 شاخهcodex/inquiry-settings-v51،بدونcommit/pushتازه. manifest هویت نسخه زنده است،نه HEAD قدیمی. Stagingجاری ops/private/permanent-staging-inquiry-v51 با رمزها/vault محفوظ است.
+
+## مبنای قبلی v50 — PASS
 
 نسخهٔ واقعاً منتشرشده روی `https://shahrahsystem.ir` از `2026-10-23T20:13:58.040Z`: سورس Git `5cb1859f7dd194dec071b4ff7d0a15fe561bcec1`، manifest=`abd40ac3ff0a1da8fcc8e9e5a71d50d2fb5c72e455851b77c2f83826b8a7f314`، ۳۸ خروجی و ۱۰۷ منبع در manifest. [گزارش انتشار و حدود آزمون](../operations/release-v50-readiness.md) و [ADR-017](../decisions/ADR-017-release-notification-audience-and-report-scheduling.md) مرجع تازه‌اند؛ v28 پایین فقط تاریخچه است.
 

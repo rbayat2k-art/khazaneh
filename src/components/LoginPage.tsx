@@ -363,7 +363,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             }}
             className="text-base sm:text-lg font-bold tracking-tight text-slate-950 whitespace-nowrap shrink-0"
           >
-            سامانه جامع مالی و خزانه‌داری آریا
+            سامانه جامع مالی و خزانه داری شاهراه
           </a>
 
           {/* Zone 2: 4 Single-Line Navigation Links */}
@@ -422,7 +422,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               {/* Top Editorial Copy & Unboxed Metadata */}
               <div className="p-6 sm:p-8 lg:p-9 space-y-4 z-10">
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                  <span>هلدینگ مرکزی آریا</span>
+                  <span>شاهراه</span>
                   <span aria-hidden="true">·</span>
                   <span>پرتال یکپارچه درخواست پرداخت، ممیزی مالی و خزانه‌داری</span>
                   <span aria-hidden="true">·</span>
@@ -446,7 +446,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <div className="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 aspect-video w-full">
                   {!heroImgFailed ? (
                     <img
-                      src="/assets/treasury-portal-hero.svg"
+                      src="/assets/treasury-portal-hero.svg?v=cab6689f18d9"
                       alt="نمایش گرافیکی مرکز فرماندهی خزانه‌داری، چرخه چهارمرحله‌ای تایید اسناد مالی و صف تسویه بانکی"
                       referrerPolicy="no-referrer"
                       onError={() => setHeroImgFailed(true)}
@@ -1365,7 +1365,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       <footer className="bg-slate-950 text-slate-400 border-t border-slate-800 py-8">
         <div className="w-full max-w-[1440px] mx-auto px-6 lg:px-10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-bold text-white">سامانه جامع مالی و خزانه‌داری آریا</span>
+            <span className="font-bold text-white">سامانه جامع مالی و خزانه داری شاهراه</span>
             <span aria-hidden="true">·</span>
             <span>پرتال سازمانی درخواست پرداخت، تأیید و خزانه‌داری</span>
           </div>

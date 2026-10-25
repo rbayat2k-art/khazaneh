@@ -73,7 +73,7 @@ import {
 import {exportTreasuryOperational as exportTreasuryItemsToExcel} from '../utils/treasury-operational-export';
 import { SourceBankAccountSelector } from './SourceBankAccountSelector';
 import { BankAccountImportDialog,type ImportBankAccounts } from './BankAccountImportDialog';
-import {BANK_ACCOUNT_BANKS as SYSTEM_BANKS} from '../utils/bank-account-import';
+import {BANK_ACCOUNT_BANKS as SYSTEM_BANKS,bankAccountBankName} from '../utils/bank-account-import';
 import {TreasuryReturnDialog,treasuryReturnRows} from './TreasuryReturnDialog';
 import type {TreasuryReturn} from '../utils/treasury-correction';
 import {treasuryTargets,treasuryExpectedPaid} from '../utils/treasury-targets';
@@ -518,7 +518,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   const filteredCompleted = useMemo(() => {
     return unifiedCompletedPayments.filter((i) => {
       if (!matchesSearch(i, searchQuery)) return false;
-      if (completedBankFilter !== 'ALL' && i.paidBankName !== completedBankFilter) return false;
+      if (completedBankFilter !== 'ALL' && bankAccountBankName(i.paidBankName||'') !== bankAccountBankName(completedBankFilter)) return false;
       if (
         completedSourceAccountFilter !== 'ALL' &&
         i.sourceBankAccountId !== completedSourceAccountFilter &&
@@ -714,7 +714,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
       });
       if (ok) {
         setSelectedQueueUids([]);
-        setSubTab('IN_PAYMENT');
+        if(normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role).canAccessTreasuryInPayment)setSubTab('IN_PAYMENT');
       }
     } finally {
       setIsMovingPool(false);
@@ -2421,6 +2421,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                     onChange={(e) => setFormBankName(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-semibold"
                   >
+                    {!SYSTEM_BANKS.includes(formBankName)&&<option value={formBankName}>{formBankName} (ثبت‌شده)</option>}
                     {SYSTEM_BANKS.map((b) => (
                       <option key={b} value={b}>
                         {b}

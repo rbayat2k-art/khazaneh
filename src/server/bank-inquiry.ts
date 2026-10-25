@@ -13,7 +13,7 @@ export type {InquiryClient} from './inquiry-client';
 type Auth=(user:User,db:TreasuryDatabaseState)=>EffectiveAccess;
 type Write=(work:(db:TreasuryDatabaseState)=>boolean)=>Promise<void>;
 export type InquiryContext={source:InquirySource;generation:string;providerId?:string;connectionId?:string};
-type ServiceOptions={manualOnly?:boolean;context?:()=>InquiryContext;snapshot?:()=>{client:InquiryClient;context:InquiryContext}};
+type ServiceOptions={manualOnly?:boolean;context?:()=>InquiryContext;snapshot?:()=>{client:InquiryClient;context:InquiryContext};authorized?:(db:TreasuryDatabaseState)=>boolean};
 export class InquiryError extends Error {status:number;code:string;constructor(status:number,code:string){super(code);this.status=status;this.code=code;}}
 const reject=(status:number,code:string):never=>{throw new InquiryError(status,code);};
 export const cardFingerprint=(card:string)=>crypto.createHash('sha256').update(normalizeCard(card)).digest('hex');
@@ -93,13 +93,13 @@ export class BankInquiryService {
  wake(explicit=false){if(this.stopped)return;if(this.running){this.expedited=true;return;}if(this.timer){if(!explicit)return;clearTimeout(this.timer);this.timer=undefined;}const db=this.read();if(!db.bankInquiryConfig?.enabled&&!(db.bankInquiryJobs||[]).some(j=>j.status==='QUEUED'||j.status==='RUNNING'))return;this.timer=setTimeout(()=>{this.timer=undefined;void this.process().catch(()=>{});},50);this.timer.unref();}
  stop(){this.stopped=true;if(this.timer)clearTimeout(this.timer);}
  async recover(){await this.write(db=>{let changed=false;for(const j of db.bankInquiryJobs||[])if(j.status==='RUNNING'){j.status='UNKNOWN';j.finishedAt=now();const row=correctionTarget(db,j.target).row as any;if(row?.bankInquiry?.jobId===j.id){row.bankInquiry.status='UNKNOWN';row.bankInquiry.code='UNKNOWN';}changed=true;}return changed;});this.wake();}
- private valid(db:TreasuryDatabaseState,j:InquiryJob){try{const context=this.options.context?.();if(this.options.manualOnly&&j.automatic||context&&(j.source!==context.source||j.generation!==context.generation))return;const actor=db.users.find(u=>u.id===j.actorId),manager=db.users.find(u=>u.id===db.bankInquiryConfig?.configuredBy);if(!actor||!manager||!manageInquiryAllowed(db,manager,this.auth)||db.bankInquiryConfig?.revision!==j.configRevision||!this.client.configured())return;const found=ready(db,j.target,actor,this.auth);if(cardFingerprint(found.row.accountOrCard||'')!==j.fingerprint||found.row.bankInquiry?.jobId!==j.id)return;return found;}catch{return;}}
+ private valid(db:TreasuryDatabaseState,j:InquiryJob){try{if(this.options.authorized&&!this.options.authorized(db))return;const context=this.options.context?.();if(this.options.manualOnly&&j.automatic||context&&(j.source!==context.source||j.generation!==context.generation))return;const actor=db.users.find(u=>u.id===j.actorId),manager=db.users.find(u=>u.id===db.bankInquiryConfig?.configuredBy);if(!actor||!manager||!manageInquiryAllowed(db,manager,this.auth)||db.bankInquiryConfig?.revision!==j.configRevision||!this.client.configured())return;const found=ready(db,j.target,actor,this.auth);if(cardFingerprint(found.row.accountOrCard||'')!==j.fingerprint||found.row.bankInquiry?.jobId!==j.id)return;return found;}catch{return;}}
  private async process(){if(this.running||this.stopped)return;this.running=true;this.expedited=false;
   try{for(let turn=0;turn<100&&!this.stopped;turn++){
    let claimed:InquiryJob|undefined,card='';
    await this.write(db=>{
     let changed=false;const cfg=db.bankInquiryConfig,manager=db.users.find(u=>u.id===cfg?.configuredBy);
-    if(!this.options.manualOnly&&cfg?.enabled&&cfg.automatic&&manager&&manageInquiryAllowed(db,manager,this.auth)&&this.auth(manager,db).effectivePermissions.canInquireBankDetails&&this.client.configured()){
+    if((!this.options.authorized||this.options.authorized(db))&&!this.options.manualOnly&&cfg?.enabled&&cfg.automatic&&manager&&manageInquiryAllowed(db,manager,this.auth)&&this.auth(manager,db).effectivePermissions.canInquireBankDetails&&this.client.configured()){
      const targets=inquiryRows(db).filter(({row,parent})=>inquiryEligible(row,parent)&&!hasDeletionFinancialLinks(db,row.id)&&companyEnabled(db,parent)&&typeof row.accountOrCard==='string'&&/^\d{16}$/.test(normalizeCard(row.accountOrCard))&&(!row.bankInquiry||row.bankInquiry.fingerprint!==cardFingerprint(row.accountOrCard))).slice(0,50).map(r=>r.target);
      if(targets.length){enqueueInquiry(db,manager,this.auth,targets,false,true,undefined,this.options.context?.());changed=true;}
     }

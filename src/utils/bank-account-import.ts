@@ -3,7 +3,7 @@ import {bankDigits,bankFieldsError,normalizeIban} from './bank-identifiers';
 export {bankDigits} from './bank-identifiers';
 
 // One catalogue for the existing form, import validation and the downloadable template.
-export const BANK_ACCOUNT_BANKS=['بانک ملت','بانک ملی ایران','بانک تجارت','بانک پاسارگاد','بانک سامان','بانک صادرات ایران','بانک پارسیان','بانک سپه','بانک شهر','بانک آینده','بانک رفاه کارگران','بانک مسکن','بانک کشاورزی'];
+export const BANK_ACCOUNT_BANKS=['بانک ملت','بانک ملی ایران','بانک تجارت','بانک پاسارگاد','بانک سامان','بانک صادرات ایران','بانک پارسیان','بانک سپه','بانک شهر','بانک آینده','بانک رفاه کارگران','بانک مسکن','بانک کشاورزی','بانک اقتصاد نوین','بانک ایران زمین','بانک رسالت','بلوبانک','پست بانک ایران','بانک توسعه تعاون','بانک دی','بانک سرمایه','بانک سینا','بانک قرض‌الحسنه مهر ایران','بانک گردشگری','مؤسسه اعتباری ملل'];
 export const BANK_ACCOUNT_TYPES=['جاری','کوتاه‌مدت','پشتیبان','تنخواه'];
 export const BANK_ACCOUNT_METHODS: Array<{id:PaymentMethodType;label:string}>=[{id:'PAYA',label:'پایا'},{id:'SATNA',label:'ساتنا'},{id:'CARD',label:'کارت‌به‌کارت'},{id:'INTERNAL',label:'داخلی'},{id:'CHECK',label:'چک'}];
 export const BANK_IMPORT_COLUMNS=[['bankName','نام بانک *'],['accountTitle','عنوان حساب *'],['companyName','شرکت / صاحب حساب *'],['accountNumber','شماره حساب *'],['iban','شماره شبا'],['cardNumber','شماره کارت'],['accountType','نوع حساب'],['branchName','نام شعبه'],['branchCode','کد شعبه'],['allowedPaymentMethods','روش‌های پرداخت مجاز'],['status','وضعیت حساب'],['isDefault','حساب پیش‌فرض'],['description','توضیحات حساب']] as const;
@@ -15,6 +15,13 @@ export type BankImportReport={rows:BankImportReviewRow[];newCount:number;duplica
 export type BankImportReply={ok:boolean;error?:string;report?:BankImportReport;previewToken?:string;createdCount?:number;skippedCount?:number};
 export const BANK_IMPORT_LIMIT=200;
 export function bankText(value:string):string{return value.trim().replace(/ي/g,'ی').replace(/ك/g,'ک').replace(/\s+/g,' ');}
+// Explicit aliases, not fuzzy issuer detection. Preserve stored historical labels.
+// In particular, a Blu account is never silently relabelled as Saman.
+const bankNameKey=(value:string)=>bankText(value).replace(/[\s\u200c\u200d-]/g,'');
+const bankAliases:Record<string,string>=Object.create(null);
+for(const name of BANK_ACCOUNT_BANKS){bankAliases[bankNameKey(name)]=name;if(name.startsWith('بانک '))bankAliases[bankNameKey(name.slice(5))]=name;}
+for(const [alias,name] of Object.entries({'ملی':'بانک ملی ایران','بانک ملی':'بانک ملی ایران','صادرات':'بانک صادرات ایران','بانک صادرات':'بانک صادرات ایران','رفاه':'بانک رفاه کارگران','بانک رفاه':'بانک رفاه کارگران','بلو بانک':'بلوبانک','پست بانک':'پست بانک ایران','پست‌بانک':'پست بانک ایران','بانک قرض الحسنه رسالت':'بانک رسالت','قرض الحسنه رسالت':'بانک رسالت','موسسه اعتباری ملل':'مؤسسه اعتباری ملل'}))bankAliases[bankNameKey(alias)]=name;
+export function bankAccountBankName(value:string):string{return bankAliases[bankNameKey(value)]||bankText(value);}
 function bankIdentifier(value:string|undefined):string{return bankDigits(value||'').replace(/[\s-]/g,'').toUpperCase();}
 const keys=BANK_IMPORT_COLUMNS.map(([key])=>key),required=keys.slice(0,4);
 export function bankImportShapeError(rows:unknown):string|undefined{
@@ -27,7 +34,7 @@ function normalizeRow(input:BankImportInput):{account?:BankImportAccount;error?:
   if(Object.keys(v).some(key=>!keys.includes(key as BankImportField)))return {error:'ستون ناشناخته وجود دارد؛ فقط قالب سامانه مجاز است.'};
   if(Object.entries(v).some(([key,value])=>typeof value!=='string'||value.length>(key==='description'?2000:300)))return {error:'مقدار ستون‌ها باید متن معتبر باشد؛ شماره حساب، شبا، کارت و کد شعبه را در اکسل Text وارد کنید.'};
   if(required.some(key=>!v[key]?.trim()))return {error:'نام بانک، عنوان حساب، شرکت/صاحب حساب و شماره حساب الزامی‌اند.'};
-  const bankName=bankText(v.bankName!),accountNumber=bankDigits(v.accountNumber!).trim();
+  const bankName=bankAccountBankName(v.bankName!),accountNumber=bankDigits(v.accountNumber!).trim();
   const iban=normalizeIban(v.iban||''),cardNumber=bankIdentifier(v.cardNumber),branchCode=bankDigits(v.branchCode||'').trim();
   const identifierError=bankFieldsError({iban,cardNumber});if(identifierError)return {error:identifierError};
   if(!BANK_ACCOUNT_BANKS.includes(bankName))return {error:'بانک از فهرست انتخابی قالب انتخاب نشده است.'};
@@ -46,10 +53,10 @@ function normalizeRow(input:BankImportInput):{account?:BankImportAccount;error?:
   return {account:{bankName,accountNumber,accountTitle:bankText(v.accountTitle!),companyName,company:companyName,accountHolderName:companyName,iban:iban||undefined,cardNumber:cardNumber||undefined,branchCode:branchCode||undefined,branchName:bankText(v.branchName||'')||undefined,accountType,description:bankText(v.description||'')||undefined,currency:'IRR',isActive,isDefault,status:isActive?'ACTIVE':'INACTIVE',allowedPaymentMethods,supportedMethods:allowedPaymentMethods}};
 }
 function matchesIdentity(a:CompanyBankAccount|BankImportAccount,b:BankImportAccount):boolean{
-  return (bankText(a.bankName)===b.bankName&&bankDigits(a.accountNumber).trim()===b.accountNumber)||!!(b.iban&&normalizeIban(a.iban||'')===b.iban)||!!(b.cardNumber&&bankIdentifier(a.cardNumber)===b.cardNumber);
+  return (bankAccountBankName(a.bankName)===b.bankName&&bankDigits(a.accountNumber).trim()===b.accountNumber)||!!(b.iban&&normalizeIban(a.iban||'')===b.iban)||!!(b.cardNumber&&bankIdentifier(a.cardNumber)===b.cardNumber);
 }
 function sameExplicitFields(existing:CompanyBankAccount|BankImportAccount,account:BankImportAccount,values:BankImportInput['values']):boolean{
-  if(bankText(existing.bankName)!==account.bankName||bankDigits(existing.accountNumber).trim()!==account.accountNumber||bankText(existing.accountTitle)!==account.accountTitle||bankText(existing.companyName||existing.company||existing.accountHolderName||'')!==account.companyName)return false;
+  if(bankAccountBankName(existing.bankName)!==account.bankName||bankDigits(existing.accountNumber).trim()!==account.accountNumber||bankText(existing.accountTitle)!==account.accountTitle||bankText(existing.companyName||existing.company||existing.accountHolderName||'')!==account.companyName)return false;
   for(const field of ['iban','cardNumber','branchName','branchCode','accountType','description'] as const){
     if(!values[field]?.trim())continue;
     const oldValue=field==='iban'?normalizeIban(existing.iban||''):field==='cardNumber'?bankIdentifier(existing[field]):bankText(existing[field]||'');

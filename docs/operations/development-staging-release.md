@@ -1,6 +1,30 @@
 # فرایند دائمی توسعه، Staging و انتشار شاهراه
 
+## وضعیت جاری v55 — PASS / DEPLOYED
+
+[جست‌وجوی مرکز هزینه](release-v55-cost-center-search.md) با مجوز صریح همین تغییر منتشر شد؛ manifest=`86778ed21002a4d1ec37f63c59a2074452b5085e62b06b42829f7598cf0a7566`. Production باز و اطلاعات/رمز/مجوزها محفوظ؛ Stage مستقل جاری `ops/private/permanent-staging-cost-center-v55` در همان `http://127.0.0.1:55120/` با رمزهای قبلی است. وضعیت‌های جاری پایین تاریخچه‌اند؛ مجوز این نسخه دائمی نیست.
+
+## وضعیت جاری v54b — PASS / DEPLOYED
+
+[رکورد شرکت‌های مجاز نقش](release-v54-role-companies.md) مرجع جاری است؛ manifest=`c04924ad94ba0b14026a0778bf15ebfa53de64b5a4ff0fbe08ef393f5afa94b6`. Production با مجوز صریح همین تغییر منتشر و باز است؛ فقط شرکت APPROVER طبق تصمیم مالک اصلاح شد، دیگر داده‌ها/رمزها/مجوزها حفظ شدند. Stage مستقل جاری `ops/private/permanent-staging-role-companies-v54` در همان `http://127.0.0.1:55120/`، با رمز/vault/data قبلی و بکاپ است. وضعیت‌های «جاری» پایین، تاریخی‌اند. این انتشار مجوز تغییر بعدی نیست.
+
 مرجع مصوب: [ADR-008](../decisions/ADR-008-private-staging-owner-release-approval.md). این سند فرایند است، نه مجوز Production. شروع هر تغییر از AGENTS، Baseline و فقط دامنهٔ مربوط باشد؛ به تاریخچهٔ چت وابسته نشوید.
+
+## Production جاری v53f — PASS / DEPLOYED
+
+پس از پذیرش صریح مالک، [همان candidate v53f](release-v53-menu-permissions.md) با بکاپ/restore و حفظ کامل داده، رمز و تنظیمات نقش‌های جاری روی دامنه منتشر شد. manifest=`e845223b6489f8abe1fd385df7a9cbbb6e80c7a621b5038b47fea864f1c0043e`؛ Stage خصوصی پایین مستقل باقی است. عبارت انتظار پذیرش/Stage-only در تاریخچهٔ پایین، وضعیت پیش از انتشار است. برای تغییر بعدی چرخهٔ Stage و تأیید تازه همچنان لازم است.
+
+## Staging جاری v53f — تفکیک منوها و مجوزها، ۲۰۲۶/۱۰/۲۴
+
+PASS — [رکورد آزمون و تحویل](staging-v53-menu-permissions.md)، manifest=`e845223b6489f8abe1fd385df7a9cbbb6e80c7a621b5038b47fea864f1c0043e`؛ محیط جاری `ops/private/permanent-staging-menu-permissions-v53`، آدرس `http://127.0.0.1:55120/`. داده، رمزهای فعلی Stage، vault و بکاپ‌های قبلی حفظ شدند. ۴۱۲تست در هر adapter و۱۶مسیرمرورگر PASS؛ gate/admin/خروج/ورودمجدد/JS/CSS و۹کارت در خود محیط PASS. Production همان v52b است؛ پذیرش مالک و انتشار v53 NOT RUN. رمزها فقط در ACCESS.txt خصوصی همین محیط هستند. اطلاعات Staging در بندهای تاریخی پایین مرجع محیط جاری نیستند.
+
+## نسخهٔ جاری v52b — برند شاهراه، ۲۰۲۶/۱۰/۲۴
+
+PASS — [رکورد انتشار نام جدید](release-v52-branding.md)، با مجوز صریح مخصوص همین تغییر روی دامنه منتشر شد. Stagingجاری `ops/private/permanent-staging-branding-v52b`،همان `http://127.0.0.1:55120/` وmanifest=`2b1371f9f187e9b221615b7ebe62778abca0459f4a3deb47c6627bfbead9934e`؛ ورود/خروج/adminوassetهاPASS. رمزهایStage/vault آن حفظ،دادهٔProduction منتقلنشد. اینتحویل مجوز تغییر دسترسی یا نشر بعدی نیست.
+
+## نسخهٔ قبلی v51 — تنظیمات اتصال، ۲۰۲۶/۱۰/۲۴
+
+PASS — [همان artifact v51 روی دامنه منتشر شد](release-v51-inquiry-settings.md)، با مجوز صریح مخصوص همین تحویل. Staging جاری `ops/private/permanent-staging-inquiry-v51` در `http://127.0.0.1:55120/` است؛ manifest=`846bab97482f626acddee831b4772e18e43cac46a1ce338bb15328b000a94688`،دروازه/رمزadmin/vault قبلی حفظ‌اند. تنظیمات/کلید فقط در اطلاعات پایه و ابزار/وضعیت در خزانه است. هیچ کلید Stage به Production منتقل نشده و استعلام واقعی در آزمون این تحویل NOT RUN است. وضعیت‌های «فقط Staging/انتشارنشده» در بخش‌های تاریخی پایین مرجع نسخهٔ فعلی نیستند؛ تغییرات بعدی همچنان پذیرش مشخص مالک را لازم دارند.
 
 ## نسخهٔ v49 — اکسل عملیاتی و گزارش جامع، ۲۰۲۶/۱۰/۲۳
 

@@ -665,7 +665,7 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
                     type="text"
                     value={testMsg}
                     onChange={(e) => setTestMsg(e.target.value)}
-                    placeholder="پیامک تست اتصال درگاه پرتال خزانه‌داری آریا"
+                    placeholder="پیامک تست اتصال درگاه پرتال خزانه‌داری شاهراه"
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
                   />
                 </div>
@@ -877,7 +877,7 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
                   required
                   value={compName}
                   onChange={(e) => setCompName(e.target.value)}
-                  placeholder="مثال: شرکت مهندسی و ساخت آریا"
+                  placeholder="مثال: شرکت مهندسی و ساخت شاهراه"
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
                 />
               </div>

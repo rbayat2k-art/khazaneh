@@ -11,7 +11,7 @@ import {requestTimeFields} from '../src/utils/record-time';
 const parent=process.env.TREASURY_TEST_DIR;
 if(!parent?.replaceAll('\\','/').startsWith('C:/Users/reza/Desktop/پروژه‌ها/انتشار موقت khazaneh/work/'))throw Error('Explicit synthetic form-date test root required');
 const root=path.join(parent,'form-date-api'),base='http://127.0.0.1:55231',sqlite=process.env.TREASURY_TEST_STORAGE==='sqlite',password='Synthetic-Only!2026',tokens:Record<string,string>={};
-let child:ChildProcess;
+let child:ChildProcess;let serverErrors='';
 async function api(route:string,user?:string,body?:object){body=route==='/treasury/manual-payment'&&body?requireManual(body):requestFixture(route,body);const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(user?{authorization:'Bearer '+tokens[user]}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,data:await r.json()};}
 function readStore():string{if(!sqlite)return fs.readFileSync(root+'/treasury-db.json','utf8');const store=new SqliteRecords(root+'/treasury.sqlite',false,true);try{return JSON.stringify(store.read());}finally{store.close();}}
 before(async()=>{
@@ -21,7 +21,8 @@ before(async()=>{
  if(sqlite){const s=new SqliteRecords(root+'/treasury.sqlite',true);try{s.commit(state,undefined,s.signature());}finally{s.close();}}else fs.writeFileSync(root+'/treasury-db.json',JSON.stringify(state),{flag:'wx'});
  try{await fetch(base+'/api/health');throw Error('Occupied synthetic date port');}catch(e:any){if(e.message==='Occupied synthetic date port')throw e;}
  const entry=process.env.TREASURY_TEST_SERVER;if(!entry)throw Error('Built candidate required');
- child=spawn(process.execPath,['--import',pathToFileURL(path.resolve('tests/outbound-guard.mjs')).href,entry,'--host','127.0.0.1','--port','55231'],{cwd:path.dirname(entry),env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,NODE_ENV:'production',TREASURY_DATA_DIR:root,TREASURY_STORAGE_MODE:sqlite?'sqlite':'json',DISABLE_EXTERNAL_INTEGRATIONS:'true'},windowsHide:true,stdio:'ignore'});
+ child=spawn(process.execPath,['--import',pathToFileURL(path.resolve('tests/outbound-guard.mjs')).href,entry,'--host','127.0.0.1','--port','55231'],{cwd:path.dirname(entry),env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,NODE_ENV:'production',TREASURY_DATA_DIR:root,TREASURY_STORAGE_MODE:sqlite?'sqlite':'json',DISABLE_EXTERNAL_INTEGRATIONS:'true'},windowsHide:true,stdio:['ignore','ignore','pipe']});
+ child.stderr?.on('data',chunk=>{serverErrors=(serverErrors+String(chunk)).slice(-4000);});
  for(let i=0;i<100;i++){if(child.exitCode!==null)throw Error('Synthetic date server exited');try{if((await fetch(base+'/api/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
  for(const role of roles){const id=role.toLowerCase(),r=await api('/auth/login',undefined,{personnelCode:id,password});assert.equal(r.status,200);tokens[id]=r.data.token;}
 });
@@ -53,7 +54,7 @@ test('unknown destination bank is not replaced with Mellat in new single or batc
  for(const bankName of [undefined,'']){
   const body={amount:12000,accountOrCard:'9'.repeat(16),bankName};
   const single=await api('/payment-requests','requester',body);assert.equal(single.status,200);assert.equal(single.data.item.bankName,'');
-  const batch=await api('/batch-payments','requester',{title:'TEST unknown issuer',items:[{...body,payeeName:'TEST'}]});assert.equal(batch.status,200);assert.equal(batch.data.batch.items[0].bankName,'');
+  const batch=await api('/batch-payments','requester',{title:'TEST unknown issuer',items:[{...body,payeeName:'TEST'}]});assert.equal(batch.status,200,serverErrors);assert.equal(batch.data.batch.items[0].bankName,'');
  }
 });
 test('Jalali form dates reject invalid and past NEW requests without writes, but preserve historical document dates',async()=>{

@@ -58,6 +58,9 @@ import {
 import { SortableHeader } from './SortableHeader';
 import { AdminMasterDataAndSmsSection } from './AdminMasterDataAndSmsSection';
 import { getUserRoles, hasSupervisorPermissions } from '../utils/user-roles';
+import {PermissionSettings} from './PermissionSettings';
+import {RoleCompanyAccess} from './RoleCompanyAccess';
+import {permissionCount,supervisorCompanyAllowed} from '../utils/permission-registry';
 
 export type AdminSubTab =
   | 'USERS'
@@ -107,7 +110,7 @@ interface AdminPortalViewProps {
     requiresReplacementSupervisor?: boolean;
     pendingCount?: number;
   }>;
-  onSaveRoleConfig: (config: Partial<RoleDefinitionConfig> & { role: Role }) => Promise<{
+  onSaveRoleConfig: (config: Partial<RoleDefinitionConfig> & { role: Role; expectedAllowedCompanies?:string[] }) => Promise<{
     ok: boolean;
     error?: string;
   }>;
@@ -257,6 +260,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
   const [roleTitleDraft, setRoleTitleDraft] = useState<string>(activeRoleConfig?.title || '');
   const [roleDescDraft, setRoleDescDraft] = useState<string>(activeRoleConfig?.description || '');
+  const [roleCompaniesDraft,setRoleCompaniesDraft]=useState<string[]>(()=>[...(activeRoleConfig?.allowedCompanies||[])]);
   const [roleLandingDraft, setRoleLandingDraft] = useState<
     'REQUESTER' | 'APPROVER' | 'ACCOUNTING' | 'TREASURY' | 'ADMIN_PANEL' | 'SETTINGS'
   >(activeRoleConfig?.defaultLandingSection || 'REQUESTER');
@@ -283,11 +287,13 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [newRoleTemplate, setNewRoleTemplate] = useState<BuiltInRole | 'MINIMAL'>('REQUESTER');
   const [isCreatingNewRole, setIsCreatingNewRole] = useState(false);
 
-  // Sync draft fields whenever activeRoleConfig changes (e.g. after server save or reset)
+  // Polling recreates DTO objects; identical server state must not erase unsaved edits.
+  const activeRoleConfigRevision = JSON.stringify(activeRoleConfig);
   useEffect(() => {
     if (!activeRoleConfig) return;
     setRoleTitleDraft(activeRoleConfig.title || '');
     setRoleDescDraft(activeRoleConfig.description || '');
+    setRoleCompaniesDraft([...(activeRoleConfig.allowedCompanies||[])]);
     setRoleLandingDraft(activeRoleConfig.defaultLandingSection || 'REQUESTER');
     setRoleScopeDraft(activeRoleConfig.accessScope);
     setRoleApprovalLimitDraft(String(activeRoleConfig.approvalLimitRial ?? 0));
@@ -295,12 +301,13 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     setRolePermsDraft(
       normalizeRolePermissionSet(activeRoleConfig.permissions, activeRoleConfig.role)
     );
-  }, [activeRoleConfig]);
+  }, [activeRoleConfigRevision]);
 
   const handleSelectRoleCard = (r: RoleDefinitionConfig) => {
     setSelectedRoleKey(r.role);
     setRoleTitleDraft(r.title || '');
     setRoleDescDraft(r.description || '');
+    setRoleCompaniesDraft([...(r.allowedCompanies||[])]);
     setRoleLandingDraft(r.defaultLandingSection || 'REQUESTER');
     setRoleScopeDraft(r.accessScope);
     setRoleApprovalLimitDraft(String(r.approvalLimitRial ?? 0));
@@ -314,9 +321,9 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     () =>
       users.filter((u) => {
         if (u.id === editingUserId || u.isActive === false) return false;
-        return hasSupervisorPermissions(u.effectivePermissions || {}, u.effectiveAccessScope || u.accessScope, u.effectiveApprovalLimitRial) && ((u.effectiveAccessScope || u.accessScope) !== 'DEPARTMENT' || (u.department === department && u.company === company));
+        return hasSupervisorPermissions(u.effectivePermissions || {}, u.effectiveAccessScope || u.accessScope, u.effectiveApprovalLimitRial) && supervisorCompanyAllowed(u,company,roleConfigs,companies) && ((u.effectiveAccessScope || u.accessScope) !== 'DEPARTMENT' || (u.department === department && u.company === company));
       }),
-    [users, editingUserId, roleConfigs, department, company]
+    [users, editingUserId, roleConfigs, companies, department, company]
   );
 
   const eligibleReplacementApprovers = useMemo(() => {
@@ -530,7 +537,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
         accessScope: roleScopeDraft,
         approvalLimitRial: Number(roleApprovalLimitDraft) || 0,
         paymentLimitRial: Number(rolePaymentLimitDraft) || 0,
-        permissions: rolePermsDraft,
+        ...(activeRoleConfig.role!=='ADMIN'&&JSON.stringify(roleCompaniesDraft)!==JSON.stringify(activeRoleConfig.allowedCompanies||[])?{allowedCompanies:roleCompaniesDraft,expectedAllowedCompanies:activeRoleConfig.allowedCompanies||[]}:{}),
+        permissions: Object.fromEntries(Object.entries(rolePermsDraft).filter(([key,value])=>normalizeRolePermissionSet(activeRoleConfig.permissions,activeRoleConfig.role,activeRoleConfig.baseTemplateRole)[key as keyof RolePermissionSet]!==value)) as RolePermissionSet,
       });
       if (!res.ok) {
         setRoleSaveError(res.error || 'خطا در ذخیره تنظیمات نقش');
@@ -882,6 +890,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
                   <option value="">-- بدون سرپرست؛ ارسال مستقیم به حسابداری --</option>
+                  {supervisorId&&!eligibleSupervisors.some(s=>s.id===supervisorId)&&<option value={supervisorId} disabled>{users.find(u=>u.id===supervisorId)?.name||'سرپرست فعلی'} (ارجاع فعلی؛ شرایط انتخاب مجدد برقرار نیست)</option>}
                   {eligibleSupervisors.map((sup) => (
                     <option key={sup.id} value={sup.id}>
                       {sup.name} ({sup.department} — {getUserRoles(sup).map(r => getRoleLabel(r, roleConfigs)).join('، ')})
@@ -1392,7 +1401,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     (u) => getUserRoles(u).includes(rc.role) && u.isActive !== false
                   ).length;
                   const normPerms = normalizeRolePermissionSet(rc.permissions, rc.role);
-                  const activePermCount = Object.values(normPerms).filter(Boolean).length;
+                  const activePermCount = permissionCount(normPerms,rc.role==='ADMIN');
                   const isBuiltIn = ['REQUESTER', 'APPROVER', 'ACCOUNTING', 'TREASURY', 'ADMIN'].includes(
                     rc.role
                   );
@@ -1707,438 +1716,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                 </div>
               </div>
 
-              {/* 2. All Panel Sections & Granular Submenu Access Toggles */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-900">
-                      ۲. دسترسی به منوها، زیرمنوها و عملیات هر بخش از پنل
-                    </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      هر گزینه‌ای که فعال شود، منو و قابلیت مربوطه در پنل کاربر نمایش داده شده و مجاز می‌شود.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRolePermsDraft({
-                          canViewRequests: true,
-                          canCreateRequest: true,
-                          canEditAmount: true,
-                          canApprove: true,
-                          canReturnForRevision: true,
-                          canExecutePayment: true,
-                          canViewAttachments: true,
-                          canExportReports: true,
-                          canAccessTreasuryReports: true,
-                          canManageUsers: true,
-                          canAccessRequesterSection: true,
-                          canCreatePaymentBatch: true,
-                          canCreatePaymentSingle: true,
-                          canCreateAdvanceBatch: true,
-                          canCreateAdvanceSingle: true,
-                          canAccessApproverCartable: true,
-                          canAccessAccountingCartable: true,
-                          canAccessTreasuryQueue: true,
-                          canAccessTreasuryInPayment: true,
-                          canAccessTreasuryCompleted: true,
-                          canAccessTreasuryBankAccounts: true,
-                          canAccessTreasuryManualPayment: true,
-                          canAccessTreasuryDailyCover: true,
-                          canAccessTreasuryArchive: true,
-                          canManageCompanies: true,
-                          canManageDepartments: true,
-                          canManageCostCenters: true,
-                          canManageSmsGateway: true,
-                          canManageRoles: true,
-                          canManagePasswordRecovery: true,
-                          canViewSecurityAudit: true,
-                          canAccessSettings: true,
-                        })
-                      }
-                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[11px] font-bold cursor-pointer"
-                    >
-                      انتخاب همه دسترسی‌ها
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRolePermsDraft({
-                          canViewRequests: true,
-                          canCreateRequest: false,
-                          canEditAmount: false,
-                          canApprove: false,
-                          canReturnForRevision: false,
-                          canExecutePayment: false,
-                          canViewAttachments: true,
-                          canExportReports: false,
-                          canAccessTreasuryReports: false,
-                          canManageUsers: false,
-                          canAccessRequesterSection: false,
-                          canCreatePaymentBatch: false,
-                          canCreatePaymentSingle: false,
-                          canCreateAdvanceBatch: false,
-                          canCreateAdvanceSingle: false,
-                          canAccessApproverCartable: false,
-                          canAccessAccountingCartable: false,
-                          canAccessTreasuryQueue: false,
-                          canAccessTreasuryInPayment: false,
-                          canAccessTreasuryCompleted: false,
-                          canAccessTreasuryBankAccounts: false,
-                          canAccessTreasuryManualPayment: false,
-                          canAccessTreasuryDailyCover: false,
-                          canAccessTreasuryArchive: false,
-                          canManageCompanies: false,
-                          canManageDepartments: false,
-                          canManageCostCenters: false,
-                          canManageSmsGateway: false,
-                          canManageRoles: false,
-                          canManagePasswordRecovery: false,
-                          canViewSecurityAudit: false,
-                          canAccessSettings: true,
-                        })
-                      }
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-[11px] font-bold cursor-pointer"
-                    >
-                      حداقل دسترسی (فقط مشاهده)
-                    </button>
-                  </div>
-                </div>
-
-                {/* Permission Group Cards Grid */}
-                {!rolePermsDraft.canViewRequests && (rolePermsDraft.canAccessAccountingCartable || rolePermsDraft.canAccessApproverCartable) && (
-                  <p role="alert" className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-xs leading-relaxed">
-                    منوی بررسی برای این نقش فعال است، اما مجوز مشاهده درخواست‌ها خاموش است؛ ردیف‌های کارتابل نمایش داده نمی‌شوند.
-                    گزینهٔ «مشاهده درخواست‌ها در کارتابل‌های مجاز» را در بخش مجوزهای مشترک تأیید بررسی کنید.
-                  </p>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {(
-                    [
-                      {
-                        groupTitle: 'منوی کارتابل تأیید سرپرست واحد',
-                        icon: <CheckCircle2 className="w-4 h-4 text-blue-600" />,
-                        badgeColor: 'bg-blue-50 text-blue-900 border-blue-200',
-                        items: [
-                          {
-                            key: 'canAccessApproverCartable' as keyof RolePermissionSet,
-                            label: 'نمایش منوی کارتابل تأیید سرپرست واحد',
-                            desc: 'دسترسی به منو و سوابق در انتظار تأیید، تأییدشده، برگشتی و همه سوابق سرپرست در محدوده مجاز',
-                          },
-                        ],
-                      },
-                      {
-                        groupTitle: 'منوی ثبت و پیگیری درخواست‌ها',
-                        icon: <CreditCard className="w-4 h-4 text-amber-600" />,
-                        badgeColor: 'bg-amber-50 text-amber-900 border-amber-200',
-                        items: [
-                          {
-                            key: 'canAccessRequesterSection' as keyof RolePermissionSet,
-                            label: 'نمایش منوی ثبت و پیگیری درخواست‌ها',
-                            desc: 'دسترسی به بخش کارتابل متقاضی در منوی سمت راست',
-                          },
-                          {
-                            key: 'canCreatePaymentBatch' as keyof RolePermissionSet,
-                            label: 'زیرمنوی دستور پرداخت تجمیعی',
-                            desc: 'ثبت لیست دستور پرداخت چندردیفه به ذینفعان',
-                            lockOnAdmin: true,
-                          },
-                          {
-                            key: 'canCreatePaymentSingle' as keyof RolePermissionSet,
-                            label: 'زیرمنوی دستور پرداخت تکی',
-                            desc: 'ثبت درخواست پرداخت موردی با پیوست فاکتور',
-                            lockOnAdmin: true,
-                          },
-                          {
-                            key: 'canCreateAdvanceBatch' as keyof RolePermissionSet,
-                            label: 'زیرمنوی مساعده گروهی پرسنل',
-                            desc: 'ثبت لیست مساعده حقوق برای چند پرسنل',
-                            lockOnAdmin: true,
-                          },
-                          {
-                            key: 'canCreateAdvanceSingle' as keyof RolePermissionSet,
-                            label: 'زیرمنوی مساعده تکی حقوق',
-                            desc: 'ثبت درخواست مساعده انفرادی و ارسال مجدد اصلاحیه',
-                            lockOnAdmin: true,
-                          },
-                        ],
-                      },
-                      {
-                        groupTitle: 'منوی بررسی مالی و مجوزهای مشترک تأیید',
-                        icon: <ShieldCheck className="w-4 h-4 text-blue-600" />,
-                        badgeColor: 'bg-blue-50 text-blue-900 border-blue-200',
-                        items: [
-                          {
-                            key: 'canViewRequests' as keyof RolePermissionSet,
-                            label: 'مشاهده درخواست‌ها در کارتابل‌های مجاز',
-                            desc: 'پیش‌نیاز نمایش ردیف‌ها و سوابق در کارتابل سرپرست و حسابداری؛ فقط در محدوده مجاز نقش',
-                          },
-                          {
-                            key: 'canAccessAccountingCartable' as keyof RolePermissionSet,
-                            label: 'زیرمنوی کارتابل بررسی مالی حسابداری',
-                            desc: 'مشاهده کارتابل مرحله دوم (کنترل مالی و مرکز هزینه)',
-                          },
-                          {
-                            key: 'canApprove' as keyof RolePermissionSet,
-                            label: 'مجوز تأیید درخواست‌ها (تکی و گروهی)',
-                            desc: 'مجوز مشترک سرپرست و حسابداری؛ تأیید و ارسال به مرحله بعد تا سقف ریالی مجاز نقش',
-                            lockOnAdmin: true,
-                          },
-                          {
-                            key: 'canEditAmount' as keyof RolePermissionSet,
-                            label: 'مجوز ویرایش و تعدیل مبلغ مصوب',
-                            desc: 'اصلاح مبلغ ردیف‌ها با ثبت علت در تاریخچه حسابرسی',
-                            lockOnAdmin: true,
-                          },
-                          {
-                            key: 'canReturnForRevision' as keyof RolePermissionSet,
-                            label: 'مجوز برگشت درخواست برای اصلاح یا رد',
-                            desc: 'عودت به متقاضی با ذکر علت الزامی جهت بازنگری',
-                            lockOnAdmin: true,
-                          },
-                        ],
-                      },
-                      {
-                        groupTitle: 'استعلام کارت و شبا و کنترل صاحب حساب',
-                        icon: <ShieldCheck className="w-4 h-4 text-blue-600" />,
-                        badgeColor:'bg-blue-50 text-blue-900 border-blue-200',
-                        items:[
-                          {key:'canManageBankInquiry' as keyof RolePermissionSet,label:'مدیریت تنظیمات و اعتبار استعلام بانکی',desc:'فعال‌سازی برای شرکت‌ها و سقف مصرف؛ نیازمند محدوده همه شرکت‌ها'},
-                          {key:'canInquireBankDetails' as keyof RolePermissionSet,label:'استعلام شبا، تکمیل کارت مفقود و تلاش مجدد',desc:'فقط ردیف کاملاً پرداخت‌نشده در شرکت مجاز؛ تعویض کارت کامل از مسیر عودت فنی'},
-                          {key:'canConfirmBankOwner' as keyof RolePermissionSet,label:'تأیید و اصلاح نام بانکی با دلیل',desc:'مشاهده دو نام، تأیید صریح نام بانکی و حفظ نام قبلی در سابقه؛ مبلغ ثابت'},
-                        ],
-                      },
-                      {
-                        groupTitle: 'منوی خزانه‌داری و عملیات پرداخت',
-                        icon: <Landmark className="w-4 h-4 text-emerald-600" />,
-                        badgeColor: 'bg-emerald-50 text-emerald-900 border-emerald-200',
-                        items: [
-                          {
-                            key: 'canAccessTreasuryQueue' as keyof RolePermissionSet,
-                            label: 'زیرمنوی صف پرداخت‌های در انتظار',
-                            desc: 'مشاهده موارد تاییدشده آماده انتقال به مخزن پرداخت',
-                          },
-                          {
-                            key: 'canAccessTreasuryInPayment' as keyof RolePermissionSet,
-                            label: 'زیرمنوی مخزن در حال پرداخت',
-                            desc: 'مشاهده و مدیریت ردیف‌های در دست اقدام بانکی',
-                          },
-                          {
-                            key: 'canAccessTreasuryCompleted' as keyof RolePermissionSet,
-                            label: 'زیرمنوی پرداختی‌های انجام‌شده',
-                            desc: 'مشاهده فهرست تسویه‌های قطعی و کد پیگیری بانکی',
-                          },
-                          {
-                            key: 'canAccessTreasuryBankAccounts' as keyof RolePermissionSet,
-                            label: 'زیرمنوی بانک‌ها و شماره‌حساب‌ها',
-                            desc: 'تعریف و مدیریت حساب‌های بانکی مبدأ پرداخت شرکت',
-                          },
-                          {
-                            key: 'canAccessTreasuryManualPayment' as keyof RolePermissionSet,
-                            label: 'زیرمنوهای ثبت پرداخت انجام‌شده و دستور خارج سامانه',
-                            desc: 'پرداخت انجام‌شده با فیش واقعی؛ دستور جدید با مجوز ثبت درخواست ابتدا به حسابداری می‌رود',
-                          },
-                          {
-                            key: 'canAccessTreasuryDailyCover' as keyof RolePermissionSet,
-                            label: 'زیرمنوی روکش روزانه بانک‌ها',
-                            desc: 'بستن و قفل کردن صورت‌خلاصه پرداخت‌های روزانه',
-                          },
-                          {
-                            key: 'canAccessTreasuryArchive' as keyof RolePermissionSet,
-                            label: 'زیرمنوی بایگانی پوشه‌های روز پرداخت',
-                            desc: 'دسترسی به آرشیو فیش‌ها و رسیدهای بانکی به تفکیک تاریخ',
-                          },
-                          {
-                            key: 'canExecutePayment' as keyof RolePermissionSet,
-                            label: 'مجوز قطعی‌سازی پرداخت و صدور رسید خزانه',
-                            desc: 'اجرای نهایی پرداخت تا سقف ریالی مجاز نقش',
-                            lockOnAdmin: true,
-                          },
-                        ],
-                      },
-                      {
-                        groupTitle: 'منوی مدیریت اطلاعات پایه و پیامک',
-                        icon: <Database className="w-4 h-4 text-sky-600" />,
-                        badgeColor: 'bg-sky-50 text-sky-900 border-sky-200',
-                        items: [
-                          {
-                            key: 'canManageCompanies' as keyof RolePermissionSet,
-                            label: 'زیرمنوی تعریف شرکت‌ها و سازمان‌ها',
-                            desc: 'افزودن، ویرایش و فعال/غیرفعال‌سازی شرکت‌های هلدینگ',
-                          },
-                          {
-                            key: 'canManageDepartments' as keyof RolePermissionSet,
-                            label: 'زیرمنوی تعریف واحدهای سازمانی',
-                            desc: 'مدیریت دپارتمان‌ها و واحدهای زیرمجموعه هر شرکت',
-                          },
-                          {
-                            key: 'canManageCostCenters' as keyof RolePermissionSet,
-                            label: 'زیرمنوی تعریف مراکز هزینه',
-                            desc: 'مدیریت سرفصل‌ها و مراکز هزینه حسابداری',
-                          },
-                          {
-                            key: 'canManageSmsGateway' as keyof RolePermissionSet,
-                            label: 'زیرمنوی سامانه پیامک و اطلاع‌رسانی',
-                            desc: 'تنظیم درگاه پیامک و مشاهده لاگ ارسال پیامک‌ها',
-                          },
-                        ],
-                      },
-                      {
-                        groupTitle: 'منوی مدیریت کاربران و دسترسی‌ها',
-                        icon: <UserCheck className="w-4 h-4 text-purple-600" />,
-                        badgeColor: 'bg-purple-50 text-purple-900 border-purple-200',
-                        items: [
-                          {
-                            key: 'canManageUsers' as keyof RolePermissionSet,
-                            label: 'زیرمنوی فهرست و مدیریت کاربران',
-                            desc: 'تعریف کاربر جدید، ویرایش مشخصات و تعیین سرپرست',
-                          },
-                          {
-                            key: 'canManageRoles' as keyof RolePermissionSet,
-                            label: 'زیرمنوی مدیریت نقش‌ها و حدود اختیار',
-                            desc: 'تعریف نقش جدید و تغییر دسترسی‌ها و سقف مالی نقش‌ها',
-                          },
-                          {
-                            key: 'canManagePasswordRecovery' as keyof RolePermissionSet,
-                            label: 'زیرمنوی درخواست‌های بازیابی رمز عبور',
-                            desc: 'بررسی درخواست‌های فراموشی رمز و صدور رمز موقت',
-                          },
-                          {
-                            key: 'canViewSecurityAudit' as keyof RolePermissionSet,
-                            label: 'زیرمنوی تاریخچه امنیتی و تغییرات دسترسی',
-                            desc: 'مشاهده لاگ حسابرسی امنیتی و تغییرات کاربران',
-                          },
-                        ],
-                      },
-                      {
-                        groupTitle: 'مدارک، گزارش‌گیری و تنظیمات حساب',
-                        icon: <Settings className="w-4 h-4 text-slate-700" />,
-                        badgeColor: 'bg-slate-100 text-slate-800 border-slate-300',
-                        items: [
-                          {
-                            key: 'canViewAttachments' as keyof RolePermissionSet,
-                            label: 'مشاهده و دانلود مدارک و پیوست‌ها',
-                            desc: 'نمایش فاکتورها، پیش‌فاکتورها و تصاویر فیش بانکی',
-                          },
-                          {
-                            key: 'canExportReports' as keyof RolePermissionSet,
-                            label: 'گزارش‌گیری و خروجی اکسل (XLSX) و چاپ',
-                            desc: 'دریافت فایل اکسل و نسخه چاپی از جداول کارتابل',
-                          },
-                          {key:'canAccessTreasuryReports' as keyof RolePermissionSet,label:'گزارش جامع درخواست‌ها و پرداخت‌ها',desc:'صفحه گزارش با فیلتر تاریخ و نوع، فقط شرکت‌های مجاز؛ بدون اختیار پرداخت. دانلود علاوه بر آن مجوز خروجی اکسل می‌خواهد.'},
-                          {
-                            key: 'canAccessSettings' as keyof RolePermissionSet,
-                            label: 'دسترسی به منوی تنظیمات و حساب کاربری',
-                            desc: 'تغییر رمز عبور شخصی، نشست‌های فعال و تنظیمات کارتابل',
-                          },
-                        ],
-                      },
-                    ]
-                  ).map((group) => {
-                    const enabledInGroup = group.items.filter((it) =>
-                      Boolean(rolePermsDraft[it.key])
-                    ).length;
-
-                    const toggleAllInGroup = (enable: boolean) => {
-                      setRolePermsDraft((prev) => {
-                        const next = { ...prev };
-                        group.items.forEach((it) => {
-                          next[it.key] = enable;
-                        });
-                        // Keep legacy canCreateRequest synced with any create submenu
-                        next.canCreateRequest = Boolean(
-                          next.canCreatePaymentBatch ||
-                            next.canCreatePaymentSingle ||
-                            next.canCreateAdvanceBatch ||
-                            next.canCreateAdvanceSingle
-                        );
-                        return next;
-                      });
-                    };
-
-                    return (
-                      <div
-                        key={group.groupTitle}
-                        role="group"
-                        aria-label={group.groupTitle}
-                        className={`p-4 border border-slate-200 rounded-xl bg-white space-y-3 flex flex-col justify-between ${group.groupTitle === 'منوی کارتابل تأیید سرپرست واحد' ? 'md:col-span-2' : ''}`}
-                      >
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-                            <div className="flex items-center gap-2">
-                              {group.icon}
-                              <h4 className="text-xs font-bold text-slate-900">
-                                {group.groupTitle}
-                              </h4>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={`text-[10px] px-2 py-0.5 rounded-full border font-mono-num font-bold ${group.badgeColor}`}
-                              >
-                                {enabledInGroup} / {group.items.length}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  toggleAllInGroup(enabledInGroup < group.items.length)
-                                }
-                                className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold cursor-pointer transition"
-                              >
-                                {enabledInGroup < group.items.length ? 'فعال‌سازی همه' : 'لغو همه'}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            {group.items.map((item) => {
-                              const isChecked = Boolean(rolePermsDraft[item.key]);
-
-                              return (
-                                <label
-                                  key={item.key}
-                                  className={`flex items-start gap-2.5 p-2 rounded-lg border transition cursor-pointer ${
-                                    isChecked
-                                      ? 'bg-blue-50/50 border-blue-200'
-                                      : 'bg-white hover:bg-slate-50 border-slate-200/70'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setRolePermsDraft((prev) => {
-                                        const next = { ...prev, [item.key]: checked };
-                                        next.canCreateRequest = Boolean(
-                                          next.canCreatePaymentBatch ||
-                                            next.canCreatePaymentSingle ||
-                                            next.canCreateAdvanceBatch ||
-                                            next.canCreateAdvanceSingle
-                                        );
-                                        return next;
-                                      });
-                                    }}
-                                    className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                  />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-xs font-bold text-slate-900 flex items-center justify-between gap-1">
-                                      <span>{item.label}</span>
-                                    </div>
-                                    <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
-                                      {item.desc}
-                                    </div>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <RoleCompanyAccess value={roleCompaniesDraft} onChange={setRoleCompaniesDraft} companies={companies} admin={activeRoleConfig.role==='ADMIN'} />
+              <PermissionSettings value={rolePermsDraft} onChange={setRolePermsDraft} admin={activeRoleConfig.role === 'ADMIN'} />
 
               {/* Sticky / Clear Action Footer */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-slate-200">

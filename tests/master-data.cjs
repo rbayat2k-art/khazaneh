@@ -11,7 +11,7 @@ async function bulk(page){await page.getByRole('button',{name:'تعریف گرو
 try{
   const ctx=await browser.newContext({viewport:{width:1440,height:1000}});page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));await login(page);
   await open(page,/تعریف شرکت‌ها و سازمان‌ها/);const companyCode=page.getByRole('textbox',{name:'کد یکتای شرکت',exact:true});assert.equal(await companyCode.getAttribute('readonly'),'');const predicted=await companyCode.inputValue();assert.match(predicted,/^001\d{3,}$/);
-  await page.getByPlaceholder('مثال: شرکت مهندسی و ساخت آریا').fill('شرکت آزمون ثبت گروهی');const made=await submit(page,'/api/master-data/companies/save',page.getByRole('button',{name:'ثبت شرکت جدید',exact:true}));const company=made.state.companies.find(c=>c.name==='شرکت آزمون ثبت گروهی');assert.equal(company.code,predicted);await page.getByRole('row').filter({has:page.getByText(company.name,{exact:true})}).waitFor();
+  await page.getByPlaceholder('مثال: شرکت مهندسی و ساخت شاهراه').fill('شرکت آزمون ثبت گروهی');const made=await submit(page,'/api/master-data/companies/save',page.getByRole('button',{name:'ثبت شرکت جدید',exact:true}));const company=made.state.companies.find(c=>c.name==='شرکت آزمون ثبت گروهی');assert.equal(company.code,predicted);await page.getByRole('row').filter({has:page.getByText(company.name,{exact:true})}).waitFor();
   await open(page,/تعریف واحدهای سازمانی/);assert.equal(await page.getByRole('textbox',{name:'کد واحد سازمانی',exact:true}).getAttribute('readonly'),'');let dialog=await bulk(page);
   await dialog.getByRole('combobox',{name:'شرکت مشترک این گروه'}).selectOption(company.id);
   await dialog.getByRole('button',{name:'ثبت گروهی',exact:true}).click();await dialog.getByRole('alert').waitFor();

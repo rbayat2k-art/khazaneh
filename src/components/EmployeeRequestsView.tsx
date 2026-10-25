@@ -1,3 +1,4 @@
+import {CostCenterSelect} from './CostCenterSelect';
 import {todayJalali as currentTodayJalali} from '../utils/current-date';
 import {RialInput} from './RialInput';
 import {RequestSummaryHeaders,RequestSummaryRow} from './RequestSummaryTable';
@@ -238,6 +239,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
   const [editSubmittedTarget,setEditSubmittedTarget]=useState<SubmittedEditTarget|null>(null);
   const submittedActions=(target:SubmittedEditTarget,supervisorId:string|null|undefined)=><span className="inline-flex flex-wrap items-center gap-2"><button type="button" onClick={()=>setEditSubmittedTarget(target)} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer"><Edit className="w-3 h-3"/>ویرایش</button>{canDeleteSubmittedRequest(target.row,supervisorId,currentUser.id)&&<SubmittedRequestDeleteButton target={target} requesterId={currentUser.id} onDelete={onDeleteSubmittedRequest}/>}</span>;
   const permissions=normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role);
+  const canSubmitCurrent=Boolean(permissions.canCreateRequest&&(activeFormTab==='PAYMENT_SINGLE'?permissions.canSubmitSinglePayment:activeFormTab==='PAYMENT_BATCH'?permissions.canSubmitBatchPayment:activeFormTab==='ADVANCE_SINGLE'?permissions.canSubmitSingleAdvance:activeFormTab==='ADVANCE_BATCH'?permissions.canSubmitBatchAdvance:false));
   const mayEditSubmitted=(row:EditableRequestRow,ownerId:string,supervisorId:string|null,kind:SubmittedEditKind,batchAdvance=false)=>{
     const allowed=kind==='BATCH_ITEM' ? (batchAdvance?permissions.canSubmitBatchAdvance:permissions.canSubmitBatchPayment) : kind==='ADVANCE'?permissions.canSubmitSingleAdvance:permissions.canSubmitSinglePayment;
     return ownerId===currentUser.id&&permissions.canCreateRequest&&allowed&&canEditSubmittedRequest(row,supervisorId,ownerId);
@@ -662,7 +664,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
           {/* Form A: Group / Batch Payment Order */}
           {activeFormTab === 'PAYMENT_BATCH' && (
           <form onSubmit={handleBatchPaymentSubmit} className="space-y-4">
-            <fieldset disabled={submitting || readingFiles} className="space-y-4 min-w-0">
+            {!canSubmitCurrent&&<p role="alert" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">نمایش این فرم فعال است، اما مجوز ثبت درخواست برای شما فعال نیست.</p>}
+            <fieldset disabled={submitting || readingFiles || !canSubmitCurrent} className="space-y-4 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
@@ -813,7 +816,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         </select>
                       </td>
                       <td className="px-2 py-2">
-                        <select
+                        <CostCenterSelect
                           value={row.costCenter}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -828,7 +831,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                               {cc.name} ({cc.code})
                             </option>
                           ))}
-                        </select>
+                        </CostCenterSelect>
                       </td>
                       <td className="px-2 py-2">
                         <input
@@ -899,7 +902,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         {/* Form B: Single Payment Order */}
         {activeFormTab === 'PAYMENT_SINGLE' && (
           <form onSubmit={handleSinglePaymentSubmit} className="space-y-4 w-full">
-            <fieldset disabled={submitting || readingFiles} className="space-y-4 min-w-0">
+            {!canSubmitCurrent&&<p role="alert" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">نمایش این فرم فعال است، اما مجوز ثبت درخواست برای شما فعال نیست.</p>}
+            <fieldset disabled={submitting || readingFiles || !canSubmitCurrent} className="space-y-4 min-w-0">
             <div className="pb-3 border-b border-slate-200">
               <h3 className="text-sm font-bold text-slate-900">ثبت دستور پرداخت تکی</h3>
               <p className="text-xs text-slate-500">
@@ -925,7 +929,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 <label htmlFor="single-payment-cost-center" className="block text-xs font-semibold text-slate-700 mb-1">
                   مرکز هزینه مرتبط (از فهرست مراکز هزینه فعال سازمان) <span className="text-rose-600">*</span>:
                 </label>
-                <select
+                <CostCenterSelect
                   id="single-payment-cost-center"
                   required
                   value={payCostCenter}
@@ -938,7 +942,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                       {cc.name} — کد: {cc.code} ({cc.companyName})
                     </option>
                   ))}
-                </select>
+                </CostCenterSelect>
               </div>
             </div>
 
@@ -951,7 +955,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                   required
                   value={payeeName}
                   onChange={(e) => {e.target.setCustomValidity(e.target.value.trim()?'':'نام گیرنده (صاحب حساب) را وارد کنید.');setPayeeName(e.target.value);}}
-                  placeholder="مثال: شرکت داده‌پردازی آریا"
+                  placeholder="مثال: شرکت داده‌پردازی شاهراه"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
                 />
               </div>
@@ -1111,7 +1115,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         {/* Form C: Group Advance Request (NEW!) */}
         {activeFormTab === 'ADVANCE_BATCH' && (
           <form onSubmit={handleBatchAdvanceSubmit} className="space-y-4">
-            <fieldset disabled={submitting || readingFiles} className="space-y-4 min-w-0">
+            {!canSubmitCurrent&&<p role="alert" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">نمایش این فرم فعال است، اما مجوز ثبت درخواست برای شما فعال نیست.</p>}
+            <fieldset disabled={submitting || readingFiles || !canSubmitCurrent} className="space-y-4 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
@@ -1322,7 +1327,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         {/* Form D: Single Advance Request */}
         {activeFormTab === 'ADVANCE_SINGLE' && (
           <form onSubmit={handleSingleAdvanceSubmit} className="space-y-4 w-full">
-            <fieldset disabled={submitting || readingFiles} className="space-y-4 min-w-0">
+            {!canSubmitCurrent&&<p role="alert" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">نمایش این فرم فعال است، اما مجوز ثبت درخواست برای شما فعال نیست.</p>}
+            <fieldset disabled={submitting || readingFiles || !canSubmitCurrent} className="space-y-4 min-w-0">
             <div className="pb-3 border-b border-slate-200">
               <h3 className="text-sm font-bold text-slate-900">ثبت درخواست مساعده حقوق تکی</h3>
               <p className="text-xs text-slate-500">تقاضای دریافت مساعده ماهانه با بررسی سقف کارکرد</p>

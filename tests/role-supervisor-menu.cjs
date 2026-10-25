@@ -4,7 +4,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const data=process.env.TREASURY_TEST_DIR,output=process.env.TREASURY_UI_OUTPUT;
 if(!data||!output||path.resolve(data)===path.resolve('data'))throw Error('explicit isolated test data and output required');
-const base='http://127.0.0.1:4322',title='منوی کارتابل تأیید سرپرست واحد',permission='نمایش منوی کارتابل تأیید سرپرست واحد';
+const base='http://127.0.0.1:4322',title='کارتابل تایید سرپرست واحد',permission='نمایش منوی کارتابل تأیید سرپرست واحد';
 const state=()=>JSON.parse(readFixture(path.join(data,'treasury-db.json')));
 async function login(page,code){await page.goto(base);await page.locator('#login-personnel-code').fill(code);await page.locator('#login-password').fill('Synthetic-Only!2026');await page.getByRole('button',{name:'ورود به پرتال سازمانی',exact:true}).click();}
 async function settings(page){await page.getByRole('button',{name:/مدیریت نقش‌ها و حدود اختیار/}).click();await page.getByRole('heading',{name:/مدیریت دسترسی‌ها و تنظیمات پیش‌فرض/}).waitFor();}
@@ -17,14 +17,14 @@ async function save(page){const wait=page.waitForResponse(r=>r.url().endsWith('/
     await page.screenshot({path:path.join(output,'permissions-desktop.png'),fullPage:true});
     const group=page.getByRole('group',{name:title,exact:true});
     assert.equal(await group.count(),1,'supervisor menu must have a distinct settings card');
-    assert.equal(await group.getByRole('checkbox').count(),1,'reuse one existing permission, do not duplicate it');
+    assert.equal(await group.getByRole('checkbox',{name:new RegExp(permission)}).count(),1,'reuse one main permission; submenu visibility and shared operations are separate controls');
     const before=structuredClone(state().roleConfigs.find(r=>r.role==='APPROVER').permissions);
     await group.getByRole('checkbox',{name:new RegExp(permission)}).uncheck();await save(page);
     const disabled=state().roleConfigs.find(r=>r.role==='APPROVER');
     assert.equal(disabled.permissions.canAccessApproverCartable,false);
     for(const key of Object.keys(before).filter(k=>k!=='canAccessApproverCartable'&&k!=='canAccessApproverWorkspace'))assert.equal(disabled.permissions[key],before[key],`unrelated permission changed: ${key}`);
-    await page.reload();await settings(page);assert.equal(await page.getByRole('group',{name:title,exact:true}).getByRole('checkbox').isChecked(),false);
-    await page.getByRole('group',{name:title,exact:true}).getByRole('checkbox').check();
+    await page.reload();await settings(page);assert.equal(await page.getByRole('group',{name:title,exact:true}).getByRole('checkbox',{name:new RegExp(permission)}).isChecked(),false);
+    await page.getByRole('group',{name:title,exact:true}).getByRole('checkbox',{name:new RegExp(permission)}).check();
     const landing=page.locator('select').filter({has:page.getByRole('option',{name:'کارتابل تأیید سرپرست واحد',exact:true})});
     await landing.selectOption('APPROVER');await save(page);
     assert.equal(state().roleConfigs.find(r=>r.role==='APPROVER').defaultLandingSection,'APPROVER');

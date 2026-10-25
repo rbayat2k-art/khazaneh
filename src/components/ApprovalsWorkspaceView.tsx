@@ -1,3 +1,4 @@
+import {CostCenterSelect} from './CostCenterSelect';
 import {RialInput} from './RialInput';
 import {RequestSummaryHeaders,RequestSummaryRow,REQUEST_SUMMARY_COLUMN_COUNT} from './RequestSummaryTable';
 import {useRequestDetails} from './RequestDetails';
@@ -1604,7 +1605,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
               </div>
 
               {editingRow.itemType!=='ADVANCE'&&<label className="block text-xs font-semibold text-slate-700 space-y-1">مرکز هزینه
-                <select aria-label="مرکز هزینه" disabled={isSavingEdit||!canEdit} value={editCostCenterId} onChange={e=>setEditCostCenterId(e.target.value)} className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"><option value="">بدون تغییر — {editingRecord?.costCenter||'ثبت نشده'}</option>{editingCenters.map(c=><option key={c.id} value={c.id}>{c.name}{c.code?' — '+c.code:''}</option>)}</select>
+                <CostCenterSelect aria-label="مرکز هزینه" disabled={isSavingEdit||!canEdit} value={editCostCenterId} onChange={e=>setEditCostCenterId(e.target.value)} className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"><option value="">بدون تغییر — {editingRecord?.costCenter||'ثبت نشده'}</option>{editingCenters.map(c=><option key={c.id} value={c.id}>{c.name}{c.code?' — '+c.code:''}</option>)}</CostCenterSelect>
                 <span className="block font-normal text-slate-500">فقط مراکز فعال شرکت همین درخواست؛ تغییر با دلیل در سابقهٔ رسمی ثبت می‌شود.</span>
               </label>}
 

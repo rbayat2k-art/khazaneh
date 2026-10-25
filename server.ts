@@ -35,7 +35,9 @@ import { allocateMasterDataCode, immutableMasterDataCode, retainMasterDataHighWa
 import {applyRejectionDecision,type ReviewRow} from './src/utils/review-rejection';
 import {correctionTarget,correctionRecipientId,correctionStageAllowed,applyTreasuryReturn,applyTreasuryCorrection} from './src/server/treasury-correction';
 import {openTreasuryCorrection} from './src/utils/treasury-correction';
-import {assessBankImport,bankImportShapeError,type BankImportInput} from './src/utils/bank-account-import';
+import {permissionPatchError,effectiveNavigationPermissions} from './src/utils/permission-registry';
+import {roleCompaniesError} from './src/utils/role-companies';
+import {assessBankImport,bankImportShapeError,bankAccountBankName,type BankImportInput} from './src/utils/bank-account-import';
 import type {
   TreasuryDatabaseState,
   AdvanceRequest,
@@ -1544,11 +1546,13 @@ function computeEffectiveUserAuth(user: User, db: TreasuryDatabaseState): {
     getDefaultRoleConfigs().find((r) => r.role === user.role) ||
     getDefaultRoleConfigs()[0];
 
-  const normalizedRolePerms = normalizeRolePermissionSet(rc.permissions, rc.role, rc.baseTemplateRole);
+  const normalizedRolePerms=normalizeRolePermissionSet(rc.permissions,rc.role,rc.baseTemplateRole);
+  const rolePermissionSets=[{...normalizedRolePerms}];
   for (const role of getUserRoles(user).slice(1)) {
     const additional = roleConfigs.find(r => r.role === role);
     if (!additional || role === 'ADMIN') continue;
-    const extra = normalizeRolePermissionSet(additional.permissions, additional.role, additional.baseTemplateRole);
+    const extra=normalizeRolePermissionSet(additional.permissions,additional.role,additional.baseTemplateRole);
+    rolePermissionSets.push(extra);
     for (const key of Object.keys(extra) as (keyof RolePermissionSet)[]) {
       if (extra[key]) normalizedRolePerms[key] = true;
     }
@@ -1578,7 +1582,7 @@ function computeEffectiveUserAuth(user: User, db: TreasuryDatabaseState): {
       : rc.paymentLimitRial || (user.role === 'ADMIN' ? 1000000000000 : 0);
 
   return {
-    effectivePermissions: mergedPermissions,
+    effectivePermissions: effectiveNavigationPermissions(mergedPermissions,rolePermissionSets,user.customPermissions||{}),
     effectiveAccessScope,
     effectiveApprovalLimitRial,
     effectivePaymentLimitRial,
@@ -2233,7 +2237,7 @@ function pushAddressedNotification(
           eventType: smsEventType,
           recipientName: targetUser.name,
           recipientPhone: targetUser.phone,
-          message: `پرتال مالی آریا: ${committed.title} (${committed.trackingCode})`,
+          message: `پرتال مالی شاهراه: ${committed.title} (${committed.trackingCode})`,
           relatedTrackingCode: committed.trackingCode,
         });
           try {
@@ -2847,7 +2851,7 @@ async function startServer() {
       eventType: 'OTP_RECOVERY',
       recipientName: matchedUser.name,
       recipientPhone: cleanPhone,
-      message: `پرتال مالی آریا - کد بازیابی رمز عبور شما: ${otpPlain} (اعتبار: ۳ دقیقه)`,
+      message: `پرتال مالی شاهراه - کد بازیابی رمز عبور شما: ${otpPlain} (اعتبار: ۳ دقیقه)`,
     });
     saveDb(db);
 
@@ -3120,8 +3124,13 @@ async function startServer() {
     if (normalizedSupId && (!supUser || supUser.isActive === false)) {
       return res.status(400).json({ error: 'سرپرست انتخاب‌شده معتبر یا فعال نیست.' });
     }
-    if (supUser && normalizedSupId !== previousUser?.supervisorId && (!canSupervise(supUser) || !companyPolicy(supUser,db).has(cleanCompany) || (computeEffectiveUserAuth(supUser,db).effectiveAccessScope === 'DEPARTMENT' && (supUser.department !== cleanDepartment || supUser.company !== cleanCompany)))) {
-      return res.status(400).json({ error: 'سرپرست باید مجوز مشاهده، کارتابل سرپرست و تأیید درخواست داشته باشد.' });
+    if (supUser && (normalizedSupId !== previousUser?.supervisorId || cleanCompany !== previousUser?.company || cleanDepartment !== previousUser?.department)) {
+      const supervisorAuth=computeEffectiveUserAuth(supUser,db),sp=supervisorAuth.effectivePermissions;
+      if(!sp.canViewRequests||!sp.canAccessApproverCartable||!sp.canApprove)return res.status(400).json({error:'سرپرست باید مجوز مشاهده، کارتابل سرپرست و تأیید درخواست داشته باشد.'});
+      if(!supervisorAuth.effectiveAccessScope||supervisorAuth.effectiveAccessScope==='SELF_ONLY')return res.status(400).json({error:'محدودهٔ دسترسی سرپرست نباید فقط درخواست‌های خود شخص باشد.'});
+      if(!(supervisorAuth.effectiveApprovalLimitRial>0))return res.status(400).json({error:'سقف مجاز تأیید سرپرست باید بیشتر از صفر باشد.'});
+      if(!companyPolicy(supUser,db).has(cleanCompany))return res.status(400).json({error:'شرکت کاربر در فهرست شرکت‌های مجاز نقش‌های سرپرست نیست؛ سرپرست مجاز دیگری انتخاب کنید یا دسترسی شرکت را آگاهانه تنظیم کنید.'});
+      if(supervisorAuth.effectiveAccessScope==='DEPARTMENT'&&(supUser.department!==cleanDepartment||supUser.company!==cleanCompany))return res.status(400).json({error:'سرپرست با محدودهٔ واحد سازمانی باید به همان شرکت و واحد کاربر دسترسی داشته باشد.'});
     }
     const supervisorName = supUser ? supUser.name : null;
 
@@ -3455,7 +3464,7 @@ async function startServer() {
         eventType: 'PASSWORD_RESET',
         recipientName: targetUser.name,
         recipientPhone: targetUser.phone,
-        message: `پرتال مالی آریا - رمز عبور موقت حساب کاربری شما (${targetUser.personnelCode}) توسط مدیر سیستم صادر شد: ${cleanTemp}`,
+        message: `پرتال مالی شاهراه - رمز عبور موقت حساب کاربری شما (${targetUser.personnelCode}) توسط مدیر سیستم صادر شد: ${cleanTemp}`,
       });
       smsDispatched = smsRes.ok;
       smsError = smsRes.error;
@@ -3597,6 +3606,17 @@ async function startServer() {
     }
 
     let targetCfg = db.roleConfigs.find((r) => r.role === cleanRoleKey);
+    const previousRoleCompanies=[...(targetCfg?.allowedCompanies||[])];
+    if(allowedCompanies!==undefined){
+      const error=roleCompaniesError(allowedCompanies,previousRoleCompanies,db.companies||[]);
+      if(error)return res.status(400).json({error});
+      if(req.body.expectedAllowedCompanies!==undefined){
+        const expected=req.body.expectedAllowedCompanies;
+        if(!Array.isArray(expected)||expected.some((v:unknown)=>typeof v!=='string'))return res.status(400).json({error:'نسخهٔ قبلی شرکت‌های مجاز معتبر نیست.'});
+        if(JSON.stringify(expected)!==JSON.stringify(previousRoleCompanies))return res.status(409).json({error:'شرکت‌های مجاز این نقش هم‌زمان تغییر کرده است؛ صفحه را تازه و انتخاب را دوباره بررسی کنید.'});
+      }
+    }
+    if(permissions!==undefined){const error=permissionPatchError(permissions,targetCfg?.permissions);if(error)return res.status(400).json({error});}
     const isBuiltIn = ['REQUESTER', 'APPROVER', 'ACCOUNTING', 'TREASURY', 'ADMIN'].includes(cleanRoleKey);
     const isCreatingNew = !targetCfg;
 
@@ -3656,7 +3676,7 @@ async function startServer() {
       }
       if (permissions && typeof permissions === 'object') {
         targetCfg.permissions = normalizeRolePermissionSet(
-          permissions,
+          {...normalizeRolePermissionSet(targetCfg.permissions,targetCfg.role,targetCfg.baseTemplateRole),...permissions},
           targetCfg.role,
           targetCfg.baseTemplateRole
         );
@@ -3678,7 +3698,7 @@ async function startServer() {
       targetUserName: targetCfg.title,
       description: isCreatingNew
         ? `ایجاد نقش سازمانی جدید «${targetCfg.title}» (${targetCfg.role}) با محدوده ${targetCfg.accessScope}`
-        : `بروزرسانی دسترسی‌ها و حدود اختیار نقش «${targetCfg.title}» (محدوده: ${targetCfg.accessScope}، سقف تأیید: ${targetCfg.approvalLimitRial.toLocaleString('fa-IR')} ریال، سقف پرداخت: ${targetCfg.paymentLimitRial.toLocaleString('fa-IR')} ریال)`,
+        : `بروزرسانی دسترسی‌ها و حدود اختیار نقش «${targetCfg.title}» (محدوده: ${targetCfg.accessScope}، سقف تأیید: ${targetCfg.approvalLimitRial.toLocaleString('fa-IR')} ریال، سقف پرداخت: ${targetCfg.paymentLimitRial.toLocaleString('fa-IR')} ریال)`+(allowedCompanies!==undefined&&JSON.stringify(previousRoleCompanies)!==JSON.stringify(targetCfg.allowedCompanies)?`؛ تغییر شرکت‌های مجاز: ${previousRoleCompanies.length} به ${targetCfg.allowedCompanies.length}`:''),
     });
 
     saveDb(db);
@@ -6134,7 +6154,7 @@ async function startServer() {
 
     const accounts = db.companyBankAccounts || [];
     const duplicateAcc = accounts.find(
-      (a) => a.id !== id && a.accountNumber === accountNumber && a.bankName === bankName
+      (a) => a.id !== id && a.accountNumber === accountNumber && bankAccountBankName(a.bankName) === bankAccountBankName(bankName)
     );
     if (duplicateAcc) {
       return res.status(400).json({
@@ -7115,7 +7135,7 @@ async function startServer() {
 
     const msgText =
       String(testMessage || '').trim() ||
-      `پرتال مالی و خزانه‌داری آریا - پیامک تست اتصال درگاه توسط «${actor.name}»`;
+      `پرتال مالی و خزانه‌داری شاهراه - پیامک تست اتصال درگاه توسط «${actor.name}»`;
 
     const result = await dispatchRealSms(db, {
       eventType: 'ADMIN_TEST',

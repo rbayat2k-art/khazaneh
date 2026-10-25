@@ -7,7 +7,7 @@ const plain=(v:unknown):v is Record<string,string>=>!!v&&typeof v==='object'&&!A
 /** Server-owned registry: a new contract needs a reviewed adapter AND egress policy.
  * No arbitrary user-supplied URL, header, method, parser or executable template. */
 const definitions:readonly ProviderDefinition[]=[{
- descriptor:{id:'cardinfo-v1',label:'REST — استعلام کارت و شبا (قرارداد ۱)',credentialFields:[{key:'apiKey',label:'کلید دسترسی API',required:true,maxLength:4096,secret:true}],settingFields:[],capabilities:{cardToIban:true,credits:true}},
+ descriptor:{id:'cardinfo-v1',label:'REST — استعلام کارت و شبا (قرارداد ۱)',credentialFields:[{key:'apiKey',label:'کلید دسترسی API',required:true,maxLength:4096,secret:true}],settingFields:[],connectionInfo:{endpoint:'https://cardinfo.ir/inquiry/apiv1',authentication:'کلید API در هدر Authorization به روش Bearer',timeoutSeconds:8,responseLimitKiB:16},capabilities:{cardToIban:true,credits:true}},
  validate(settings,credentials){if(Object.keys(settings).length||Object.keys(credentials).some(k=>k!=='apiKey')||credentials.apiKey!==undefined&&!/^[\x21-\x7e]{1,4096}$/.test(credentials.apiKey))invalid();},
  create:(_settings,credentials,transport)=>new CardinfoClient(credentials.apiKey||'',transport),
 }];

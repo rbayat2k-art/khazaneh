@@ -41,6 +41,7 @@ import {
 } from '../types/treasury';
 import type { AdminSubTab } from './AdminPortalView';
 import { getRoleLabel } from '../utils/sorting';
+import {menuVisible,visibleMenus,permissionValue} from '../utils/permission-registry';
 
 export type MainSection =
   | 'ADMIN_PANEL'
@@ -143,22 +144,13 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
       perms.canCreateAdvanceSingle
   );
 
-  const canAccessRequesterCartable = Boolean(
-    perms.canAccessRequesterSection || perms.canViewRequests !== false
-  );
+  const nav=(id:string)=>menuVisible(perms,id);
+  const canAccessRequesterCartable = visibleMenus(perms,'REQUESTER').some(e=>e.tab==='CARTABLE');
 
-  const canAccessApprover = Boolean(perms.canAccessApproverCartable);
-  const canAccessAccounting = Boolean(perms.canAccessAccountingCartable);
+  const canAccessApprover = visibleMenus(perms,'APPROVER').length>0;
+  const canAccessAccounting = visibleMenus(perms,'ACCOUNTING').length>0;
 
-  const canAccessTreasury = Boolean(
-    perms.canAccessTreasuryQueue ||
-      perms.canAccessTreasuryInPayment ||
-      perms.canAccessTreasuryCompleted ||
-      perms.canAccessTreasuryBankAccounts ||
-      perms.canAccessTreasuryManualPayment ||
-      perms.canAccessTreasuryDailyCover ||
-      perms.canAccessTreasuryArchive || perms.canInquireBankDetails || perms.canConfirmBankOwner
-  );
+  const canAccessTreasury = visibleMenus(perms,'TREASURY').length>0;
 
   const canAccessMasterDataMenu = Boolean(
     currentUser.role === 'ADMIN' ||
@@ -229,7 +221,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
         activeAdminTab === 'MASTER_COMPANIES' ||
         activeAdminTab === 'MASTER_DEPARTMENTS' ||
         activeAdminTab === 'MASTER_COST_CENTERS' ||
-        activeAdminTab === 'SMS_GATEWAY'
+        activeAdminTab === 'SMS_GATEWAY' || activeAdminTab === 'BANK_INQUIRY'
       ) {
         setOpenMenus((prev) => ({ ...prev, MASTER_DATA_MENU: true }));
       } else {
@@ -253,6 +245,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     tab: RequesterSubView,
     statusFilter = 'ALL'
   ) => {
+    const id=tab==='CARTABLE'?'TRACK_'+statusFilter:'FORM_'+tab;
+    if(!nav(id)){const first=visibleMenus(perms,'REQUESTER').find(e=>tab==='CARTABLE'?e.tab==='CARTABLE':e.tab!=='CARTABLE');if(!first)return;tab=first.tab as RequesterSubView;statusFilter=first.filter||'ALL';}
     onSelectSection('REQUESTER');
     if (onSelectRequesterTab) {
       onSelectRequesterTab(tab, statusFilter);
@@ -264,6 +258,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     mode: 'APPROVER' | 'ACCOUNTING',
     tab: ApprovalCategoryTab
   ) => {
+    if(!nav(mode+'_'+tab)){const first=visibleMenus(perms,mode)[0];if(!first)return;tab=first.tab as ApprovalCategoryTab;}
     onSelectSection(mode);
     if (onSelectApprovalCategoryTab) {
       onSelectApprovalCategoryTab(mode, tab);
@@ -272,6 +267,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
   };
 
   const handleTreasurySubClick = (tab: TreasurySubTab) => {
+    if(!nav('TREASURY_'+tab))return;
     onSelectSection('TREASURY');
     if (onSelectTreasuryTab) {
       onSelectTreasuryTab(tab);
@@ -280,6 +276,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
   };
 
   const handleAdminSubClick = (tab: AdminSubTab) => {
+    if(!nav('ADMIN_'+tab))return;
     onSelectSection('ADMIN_PANEL');
     if (onSelectAdminTab) {
       onSelectAdminTab(tab);
@@ -331,7 +328,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
             </div>
             <div>
               <div className="text-xs font-black text-slate-950 tracking-tight leading-snug">
-                پرتال جامع خزانه و پرداخت
+                سامانه جامع مالی و خزانه داری شاهراه
               </div>
               <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
                 <span>سامانه سازمانی گردش اسناد</span>
@@ -535,7 +532,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                 <div className="p-1.5 bg-white border-t border-slate-100 space-y-0.5">
                   <button
                     type="button"
-                    onClick={() => handleRequesterSubClick('CARTABLE', 'ALL')}
+onClick={() => handleRequesterSubClick('CARTABLE', 'ALL')}
+                    style={{display: nav('TRACK_ALL') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'REQUESTER' &&
                       activeRequesterFormTab === 'CARTABLE' &&
@@ -552,7 +550,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleRequesterSubClick('CARTABLE', 'ADVANCE_SINGLE')}
+onClick={() => handleRequesterSubClick('CARTABLE', 'ADVANCE_SINGLE')}
+                    style={{display: nav('TRACK_ADVANCE_SINGLE') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'REQUESTER' &&
                       activeRequesterFormTab === 'CARTABLE' &&
@@ -569,7 +568,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleRequesterSubClick('CARTABLE', 'ADVANCE_BATCH')}
+onClick={() => handleRequesterSubClick('CARTABLE', 'ADVANCE_BATCH')}
+                    style={{display: nav('TRACK_ADVANCE_BATCH') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'REQUESTER' &&
                       activeRequesterFormTab === 'CARTABLE' &&
@@ -586,7 +586,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleRequesterSubClick('CARTABLE', 'PAYMENT_SINGLE')}
+onClick={() => handleRequesterSubClick('CARTABLE', 'PAYMENT_SINGLE')}
+                    style={{display: nav('TRACK_PAYMENT_SINGLE') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'REQUESTER' &&
                       activeRequesterFormTab === 'CARTABLE' &&
@@ -603,7 +604,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleRequesterSubClick('CARTABLE', 'PAYMENT_BATCH')}
+onClick={() => handleRequesterSubClick('CARTABLE', 'PAYMENT_BATCH')}
+                    style={{display: nav('TRACK_PAYMENT_BATCH') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'REQUESTER' &&
                       activeRequesterFormTab === 'CARTABLE' &&
@@ -620,7 +622,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleRequesterSubClick('CARTABLE', 'NEEDS_REVISION')}
+onClick={() => handleRequesterSubClick('CARTABLE', 'NEEDS_REVISION')}
+                    style={{display: nav('TRACK_NEEDS_REVISION') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'REQUESTER' &&
                       activeRequesterFormTab === 'CARTABLE' &&
@@ -682,7 +685,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                 <div className="p-1.5 bg-white border-t border-slate-100 space-y-0.5">
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('APPROVER', 'PENDING')}
+onClick={() => handleApprovalSubClick('APPROVER', 'PENDING')}
+                    style={{display: nav('APPROVER_PENDING') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'APPROVER' && activeApprovalCategoryTab === 'PENDING'
                         ? 'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600'
@@ -702,7 +706,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('APPROVER', 'APPROVED_BY_ME')}
+onClick={() => handleApprovalSubClick('APPROVER', 'APPROVED_BY_ME')}
+                    style={{display: nav('APPROVER_APPROVED_BY_ME') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'APPROVER' && activeApprovalCategoryTab === 'APPROVED_BY_ME'
                         ? 'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600'
@@ -717,7 +722,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('APPROVER', 'RETURNED_BY_ME')}
+onClick={() => handleApprovalSubClick('APPROVER', 'RETURNED_BY_ME')}
+                    style={{display: nav('APPROVER_RETURNED_BY_ME') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'APPROVER' && activeApprovalCategoryTab === 'RETURNED_BY_ME'
                         ? 'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600'
@@ -732,7 +738,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('APPROVER', 'ALL_MY_RECORDS')}
+onClick={() => handleApprovalSubClick('APPROVER', 'ALL_MY_RECORDS')}
+                    style={{display: nav('APPROVER_ALL_MY_RECORDS') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'APPROVER' && activeApprovalCategoryTab === 'ALL_MY_RECORDS'
                         ? 'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600'
@@ -744,7 +751,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                       <span>همه سوابق من</span>
                     </div>
                   </button>
-                  <button type="button" onClick={()=>handleApprovalSubClick('APPROVER','REJECTED_BY_ME')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${activeSection==='APPROVER'&&activeApprovalCategoryTab==='REJECTED_BY_ME'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><RotateCcw className="w-3.5 h-3.5 text-rose-600" /><span>ردشده توسط من</span></button>
+                  <button type="button" onClick={()=>handleApprovalSubClick('APPROVER','REJECTED_BY_ME')} style={{display: nav('APPROVER_REJECTED_BY_ME') ? undefined : 'none'}} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${activeSection==='APPROVER'&&activeApprovalCategoryTab==='REJECTED_BY_ME'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><RotateCcw className="w-3.5 h-3.5 text-rose-600" /><span>ردشده توسط من</span></button>
                 </div>
               )}
             </div>
@@ -788,7 +795,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                 <div className="p-1.5 bg-white border-t border-slate-100 space-y-0.5">
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('ACCOUNTING', 'PENDING')}
+onClick={() => handleApprovalSubClick('ACCOUNTING', 'PENDING')}
+                    style={{display: nav('ACCOUNTING_PENDING') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'ACCOUNTING' && activeApprovalCategoryTab === 'PENDING'
                         ? 'bg-emerald-50 text-emerald-950 font-bold border-r-2 border-emerald-600'
@@ -808,7 +816,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('ACCOUNTING', 'APPROVED_BY_ME')}
+onClick={() => handleApprovalSubClick('ACCOUNTING', 'APPROVED_BY_ME')}
+                    style={{display: nav('ACCOUNTING_APPROVED_BY_ME') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'ACCOUNTING' && activeApprovalCategoryTab === 'APPROVED_BY_ME'
                         ? 'bg-emerald-50 text-emerald-950 font-bold border-r-2 border-emerald-600'
@@ -823,7 +832,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('ACCOUNTING', 'RETURNED_BY_ME')}
+onClick={() => handleApprovalSubClick('ACCOUNTING', 'RETURNED_BY_ME')}
+                    style={{display: nav('ACCOUNTING_RETURNED_BY_ME') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'ACCOUNTING' && activeApprovalCategoryTab === 'RETURNED_BY_ME'
                         ? 'bg-emerald-50 text-emerald-950 font-bold border-r-2 border-emerald-600'
@@ -838,7 +848,8 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
+onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
+                    style={{display: nav('ACCOUNTING_ALL_MY_RECORDS') ? undefined : 'none'}}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${
                       activeSection === 'ACCOUNTING' && activeApprovalCategoryTab === 'ALL_MY_RECORDS'
                         ? 'bg-emerald-50 text-emerald-950 font-bold border-r-2 border-emerald-600'
@@ -850,7 +861,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                       <span>همه سوابق من</span>
                     </div>
                   </button>
-                  <button type="button" onClick={()=>handleApprovalSubClick('ACCOUNTING','REJECTED_BY_ME')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${activeSection==='ACCOUNTING'&&activeApprovalCategoryTab==='REJECTED_BY_ME'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><RotateCcw className="w-3.5 h-3.5 text-rose-600" /><span>ردشده توسط من</span></button>
+                  <button type="button" onClick={()=>handleApprovalSubClick('ACCOUNTING','REJECTED_BY_ME')} style={{display: nav('ACCOUNTING_REJECTED_BY_ME') ? undefined : 'none'}} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] transition cursor-pointer text-right ${activeSection==='ACCOUNTING'&&activeApprovalCategoryTab==='REJECTED_BY_ME'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><RotateCcw className="w-3.5 h-3.5 text-rose-600" /><span>ردشده توسط من</span></button>
                 </div>
               )}
             </div>
@@ -958,7 +969,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     </button>
                   )}
 
-                  {(perms.canInquireBankDetails||perms.canConfirmBankOwner)&&<button type="button" onClick={()=>handleTreasurySubClick('BANK_INQUIRY')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-right ${activeSection==='TREASURY'&&activeTreasuryTab==='BANK_INQUIRY'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><ShieldCheck className="w-3.5 h-3.5 text-blue-600"/><span>تکمیل و استعلام شبا</span></button>}
+                  {(perms.canInquireBankDetails||perms.canConfirmBankOwner)&&<button type="button" onClick={()=>handleTreasurySubClick('BANK_INQUIRY')} style={{display: nav('TREASURY_BANK_INQUIRY') ? undefined : 'none'}} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-right ${activeSection==='TREASURY'&&activeTreasuryTab==='BANK_INQUIRY'?'bg-blue-50 text-blue-950 font-bold border-r-2 border-blue-600':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><ShieldCheck className="w-3.5 h-3.5 text-blue-600"/><span>تکمیل و استعلام شبا</span></button>}
                   {perms.canAccessTreasuryBankAccounts !== false && (
                     <button
                       type="button"
@@ -994,7 +1005,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                   )}
 
                   {perms.canAccessTreasuryManualPayment !== false && perms.canCreateRequest && perms.canSubmitSinglePayment && (
-                    <button type="button" onClick={()=>handleTreasurySubClick('EXTERNAL_ORDER')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] cursor-pointer text-right ${activeSection==='TREASURY'&&activeTreasuryTab==='EXTERNAL_ORDER'?'bg-slate-900/10 text-slate-950 font-bold border-r-2 border-slate-900':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><PhoneCall className="w-3.5 h-3.5 text-slate-500"/><span>ثبت دستور پرداخت خارج سامانه</span></button>
+                    <button type="button" onClick={()=>handleTreasurySubClick('EXTERNAL_ORDER')} style={{display: nav('TREASURY_EXTERNAL_ORDER') ? undefined : 'none'}} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] cursor-pointer text-right ${activeSection==='TREASURY'&&activeTreasuryTab==='EXTERNAL_ORDER'?'bg-slate-900/10 text-slate-950 font-bold border-r-2 border-slate-900':'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}`}><PhoneCall className="w-3.5 h-3.5 text-slate-500"/><span>ثبت دستور پرداخت خارج سامانه</span></button>
                   )}
                   {perms.canAccessTreasuryDailyCover !== false && (
                     <button
@@ -1327,6 +1338,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                   <button
                     type="button"
                     onClick={onOpenKeyboardHelp}
+                    style={{display:permissionValue(perms,'canShowKeyboardHelp')?undefined:'none'}}
                     className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] text-slate-600 hover:text-slate-950 hover:bg-slate-50 transition cursor-pointer text-right"
                   >
                     <div className="flex items-center gap-2">

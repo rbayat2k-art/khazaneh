@@ -203,6 +203,13 @@ export type AccessScope =
   | 'COMPANY_WIDE';
 
 export interface RolePermissionSet {
+  // Optional navigation preferences only; absence inherits the existing menu.
+  canShowTrackingAll?:boolean; canShowTrackingAdvanceSingle?:boolean; canShowTrackingAdvanceBatch?:boolean;
+  canShowTrackingPaymentSingle?:boolean; canShowTrackingPaymentBatch?:boolean; canShowTrackingRevision?:boolean;
+  canShowApproverPending?:boolean; canShowApproverApproved?:boolean; canShowApproverReturned?:boolean; canShowApproverAll?:boolean; canShowApproverRejected?:boolean;
+  canShowAccountingPending?:boolean; canShowAccountingApproved?:boolean; canShowAccountingReturned?:boolean; canShowAccountingAll?:boolean; canShowAccountingRejected?:boolean;
+  canShowTreasuryInquiry?:boolean; canShowExternalOrder?:boolean;
+  canShowKeyboardHelp?:boolean;
   canManageBankInquiry?:boolean;
   canInquireBankDetails?:boolean;
   canConfirmBankOwner?:boolean;
@@ -856,6 +863,8 @@ export interface UserSessionRecord {
 }
 
 export interface User {
+  /** Scoped DTO only: supervisor eligibility within the viewing manager's companies. */
+  supervisorAllowedCompanies?:string[];
   id: string;
   name: string;
   personnelCode: string;

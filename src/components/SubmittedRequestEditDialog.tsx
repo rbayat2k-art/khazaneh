@@ -1,3 +1,4 @@
+import {CostCenterSelect} from './CostCenterSelect';
 import {RialInput} from './RialInput';
 import {CardInput} from './CardInput';
 import {IbanInput} from './IbanInput';
@@ -63,11 +64,11 @@ export function SubmittedRequestEditDialog({target,requesterId,costCenters,canEd
           {advance?<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{field('requestedMonth','ماه مورد تقاضا',true)}{field('suggestedDate','تاریخ پیشنهادی (شمسی)')}</div>:<>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{field('accountOrCard','شماره کارت (۱۶ رقم)',requireCard)}{field('iban','شماره شبا')}</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="block text-xs font-semibold text-slate-700 space-y-1"><span>بانک مقصد</span><select aria-label="بانک مقصد" value={draft.bankName} onChange={e=>set('bankName',e.target.value)} className={control}>{[...new Set(['',draft.bankName,...DESTINATION_BANKS])].map(bank=><option key={bank} value={bank}>{bank||'انتخاب بانک (اختیاری)'}</option>)}</select></label>
-              <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>مرکز هزینه</span><select aria-label="مرکز هزینه" value={draft.costCenter} onChange={e=>set('costCenter',e.target.value)} className={control}>
+              <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>مرکز هزینه</span><CostCenterSelect aria-label="مرکز هزینه" value={draft.costCenter} onChange={e=>set('costCenter',e.target.value)} className={control}>
                 <option value="">انتخاب مرکز هزینه</option>
                 {draft.costCenter&&!costCenters.some(cc=>cc.name===draft.costCenter)&&<option value={draft.costCenter} disabled>{draft.costCenter} (ثبت قبلی؛ خارج از فهرست فعال)</option>}
                 {costCenters.map(cc=><option key={cc.id} value={cc.name}>{cc.name} — کد: {cc.code} ({cc.companyName})</option>)}
-              </select>{!costCenters.length&&<span className="block font-normal text-slate-500">مرکز هزینهٔ فعالی تعریف نشده است.</span>}</label>
+              </CostCenterSelect>{!costCenters.length&&<span className="block font-normal text-slate-500">مرکز هزینهٔ فعالی تعریف نشده است.</span>}</label>
               {field('invoiceNumber','شماره فاکتور')}{!batch&&field('dueDate','تاریخ نیاز (شمسی)')}{batch&&row.itemType==='ADVANCE'&&field('requestedMonth','ماه مورد تقاضا')}</div>
             {!batch&&<label className="block text-xs font-semibold text-slate-700 space-y-1"><span>اولویت</span><select aria-label="اولویت" value={draft.priority} onChange={e=>set('priority',e.target.value)} className={control}><option value="Normal">عادی</option><option value="Urgent">فوری</option></select></label>}
           </>}

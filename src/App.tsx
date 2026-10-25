@@ -45,6 +45,7 @@ import type {
   BulkMasterDataRow,
 } from './types/treasury';
 import { normalizeRolePermissionSet } from './types/treasury';
+import {menuVisible,visibleMenus,selectedMenuId} from './utils/permission-registry';
 import type { SubmittedRequestEdit } from './utils/request-edit';
 import type {SubmittedRequestDelete} from './utils/request-deletion';
 import type {ImportBankAccounts} from './components/BankAccountImportDialog';
@@ -133,6 +134,19 @@ export default function App() {
   const [approvalCategoryTab, setApprovalCategoryTab] = useState<ApprovalCategoryTab>('PENDING');
   const [treasurySubTab, setTreasurySubTab] = useState<TreasurySubTab>('QUEUE');
   const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>('USERS');
+  const navigationPerms=useMemo(()=>currentUser?normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role):null,[currentUser?.effectivePermissions,currentUser?.role]);
+  useEffect(()=>{
+    if(!navigationPerms||activeSection==='SETTINGS')return; // Own password/session recovery remains reachable.
+    const tab=activeSection==='REQUESTER'?requesterFormTab:activeSection==='ADMIN_PANEL'?adminSubTab:activeSection==='TREASURY'?treasurySubTab:approvalCategoryTab;
+    if(menuVisible(navigationPerms,selectedMenuId(activeSection,tab,requesterStatusFilter)))return;
+    const first=visibleMenus(navigationPerms,activeSection)[0]||(['REQUESTER','APPROVER','ACCOUNTING','TREASURY','ADMIN_PANEL','REPORTS','SETTINGS'] as const).flatMap(s=>visibleMenus(navigationPerms,s))[0];
+    if(!first){setActiveSection('SETTINGS');return;}
+    setActiveSection(first.section);
+    if(first.section==='REQUESTER'){setRequesterFormTab(first.tab as RequesterSubView);setRequesterStatusFilter(first.filter||'ALL');}
+    else if(first.section==='ADMIN_PANEL')setAdminSubTab(first.tab as AdminSubTab);
+    else if(first.section==='TREASURY')setTreasurySubTab(first.tab as TreasurySubTab);
+    else if(first.section==='APPROVER'||first.section==='ACCOUNTING')setApprovalCategoryTab(first.tab as ApprovalCategoryTab);
+  },[navigationPerms,activeSection,requesterFormTab,requesterStatusFilter,adminSubTab,treasurySubTab,approvalCategoryTab]);
 
   // Browser Push Notification & Notification Center states
   const [showNotifDropdown, setShowNotifDropdown] = useState<boolean>(false);
@@ -1656,6 +1670,7 @@ export default function App() {
   );
 
   const isPushActive = browserPermission === 'granted' && desktopNotifEnabled;
+  const activeMenuAllowed=menuVisible(currentPerms,selectedMenuId(activeSection,activeSection==='REQUESTER'?requesterFormTab:activeSection==='ADMIN_PANEL'?adminSubTab:activeSection==='TREASURY'?treasurySubTab:approvalCategoryTab,requesterStatusFilter));
 
   return (
     <React.Suspense fallback={<div dir="rtl" className="min-h-screen grid place-items-center bg-slate-50 text-slate-700">در حال بازکردن کارتابل...</div>}>
@@ -1930,8 +1945,8 @@ export default function App() {
           )}
 
           {/* 1. ADMIN PANEL */}
-          {activeSection==='ADMIN_PANEL'&&canAccessAdmin&&adminSubTab==='BANK_INQUIRY'&&<BankInquiryPanel key={currentUser.id+'-config'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} settingsOnly/>}
-          {activeSection === 'ADMIN_PANEL' && canAccessAdmin && adminSubTab!=='BANK_INQUIRY' && (
+          {activeSection==='ADMIN_PANEL' && activeMenuAllowed&&canAccessAdmin&&adminSubTab==='BANK_INQUIRY'&&<BankInquiryPanel key={currentUser.id+'-config'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} settingsOnly/>}
+          {activeSection === 'ADMIN_PANEL' && activeMenuAllowed && canAccessAdmin && adminSubTab!=='BANK_INQUIRY' && (
               <AdminPortalView
                 currentUser={currentUser}
                 activeSubTab={adminSubTab}
@@ -1983,7 +1998,7 @@ export default function App() {
           )}
 
           {/* 2. REQUESTER WORKSPACE */}
-          {activeSection === 'REQUESTER' && (
+          {activeSection === 'REQUESTER' && activeMenuAllowed && (
             <EmployeeRequestsView
               currentUser={currentUser}
               advanceRequests={dbState.advanceRequests}
@@ -2005,7 +2020,7 @@ export default function App() {
           )}
 
           {/* 3. APPROVER WORKSPACE */}
-          {activeSection === 'APPROVER' && canAccessApprover && (
+          {activeSection === 'APPROVER' && activeMenuAllowed && canAccessApprover && (
             <ApprovalsWorkspaceView
               mode="APPROVER"
               costCenters={dbState.costCenters||[]}
@@ -2023,7 +2038,7 @@ export default function App() {
           )}
 
           {/* 4. ACCOUNTING WORKSPACE */}
-          {activeSection === 'ACCOUNTING' && canAccessAccounting && (
+          {activeSection === 'ACCOUNTING' && activeMenuAllowed && canAccessAccounting && (
             currentPerms.canViewRequests ? (
             <ApprovalsWorkspaceView
               mode="ACCOUNTING"
@@ -2049,8 +2064,8 @@ export default function App() {
           )}
 
           {/* 5. TREASURY WORKSPACE */}
-          {activeSection==='TREASURY'&&canAccessTreasury&&treasurySubTab==='BANK_INQUIRY'&&<BankInquiryPanel key={currentUser.id+'-inquiry'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} onOpenSettings={currentPerms.canManageBankInquiry?()=>{setAdminSubTab('BANK_INQUIRY');setActiveSection('ADMIN_PANEL');}:undefined}/>}
-          {activeSection === 'TREASURY' && canAccessTreasury && treasurySubTab!=='BANK_INQUIRY' && (
+          {activeSection==='TREASURY' && activeMenuAllowed&&canAccessTreasury&&treasurySubTab==='BANK_INQUIRY'&&<BankInquiryPanel key={currentUser.id+'-inquiry'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} onOpenSettings={currentPerms.canManageBankInquiry?()=>{setAdminSubTab('BANK_INQUIRY');setActiveSection('ADMIN_PANEL');}:undefined}/>}
+          {activeSection === 'TREASURY' && activeMenuAllowed && canAccessTreasury && treasurySubTab!=='BANK_INQUIRY' && (
             <TreasuryWorkspaceView
               currentUser={currentUser}
               advanceRequests={dbState.advanceRequests}
@@ -2078,7 +2093,7 @@ export default function App() {
               onShowToast={showToast}
             />
           )}
-          {activeSection==='REPORTS'&&currentPerms.canAccessTreasuryReports&&<FinancialReports key={JSON.stringify([currentUser.id,currentUser.role,currentUser.additionalRoles,currentUser.company,currentUser.department,currentPerms,currentUser.effectiveAccessScope,dbState.roleConfigs,dbState.companies])} user={currentUser} companies={dbState.companies||[]} canExport={currentPerms.canExportReports} request={async(query,download)=>{const response=await fetch('/api/reports/treasury'+(download?'/export':'')+'?'+query,{headers:authHeaders});const body=await response.json();if(!response.ok)throw Error(body.error||'گزارش تهیه نشد.');return body.report;}}/>}
+          {activeSection==='REPORTS' && activeMenuAllowed&&currentPerms.canAccessTreasuryReports&&<FinancialReports key={JSON.stringify([currentUser.id,currentUser.role,currentUser.additionalRoles,currentUser.company,currentUser.department,currentPerms,currentUser.effectiveAccessScope,dbState.roleConfigs,dbState.companies])} user={currentUser} companies={dbState.companies||[]} canExport={currentPerms.canExportReports} request={async(query,download)=>{const response=await fetch('/api/reports/treasury'+(download?'/export':'')+'?'+query,{headers:authHeaders});const body=await response.json();if(!response.ok)throw Error(body.error||'گزارش تهیه نشد.');return body.report;}}/>}
         </main>
       </div>
 

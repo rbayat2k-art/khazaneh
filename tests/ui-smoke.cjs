@@ -35,7 +35,7 @@ async function submit(page, route, name) {
     await page.getByRole('button',{name:'مدیریت اطلاعات پایه',exact:true}).click();
     await page.getByRole('button',{name:/تعریف شرکت‌ها و سازمان‌ها/}).click();
     assert.equal(await page.getByRole('textbox',{name:'کد یکتای شرکت',exact:true}).getAttribute('readonly'),'');
-    await page.getByPlaceholder('مثال: شرکت مهندسی و ساخت آریا').fill('شرکت آزمون مرورگر');
+    await page.getByPlaceholder('مثال: شرکت مهندسی و ساخت شاهراه').fill('شرکت آزمون مرورگر');
     await submit(page,'/api/master-data/companies/save','ثبت شرکت جدید');
     await page.getByRole('button',{name:/تعریف واحدهای سازمانی/}).click();
     assert.equal(await page.getByRole('textbox',{name:'کد واحد سازمانی',exact:true}).getAttribute('readonly'),'');

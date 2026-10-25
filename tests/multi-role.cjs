@@ -28,7 +28,7 @@ async function approve(page,tracking,stage){const row=page.getByRole('row').filt
   try{
     const ctx=await browser.newContext({viewport:{width:1440,height:1000}}),admin=await ctx.newPage();admin.on('pageerror',e=>errors.push(e.message));await login(admin,'admin');
     await admin.getByRole('button',{name:'مدیریت اطلاعات پایه',exact:true}).click();await admin.getByRole('button',{name:/تعریف شرکت‌ها و سازمان‌ها/}).click();
-    assert.equal(await admin.getByRole('textbox',{name:'کد یکتای شرکت',exact:true}).getAttribute('readonly'),'');await admin.getByPlaceholder('مثال: شرکت مهندسی و ساخت آریا').fill('شرکت آزمون نقش');await submit(admin,'/api/master-data/companies/save','ثبت شرکت جدید');
+    assert.equal(await admin.getByRole('textbox',{name:'کد یکتای شرکت',exact:true}).getAttribute('readonly'),'');await admin.getByPlaceholder('مثال: شرکت مهندسی و ساخت شاهراه').fill('شرکت آزمون نقش');await submit(admin,'/api/master-data/companies/save','ثبت شرکت جدید');
     await admin.getByRole('button',{name:/تعریف واحدهای سازمانی/}).click();assert.equal(await admin.getByRole('textbox',{name:'کد واحد سازمانی',exact:true}).getAttribute('readonly'),'');await admin.getByPlaceholder('مثال: برنامه‌ریزی و کنترل پروژه').fill('واحد آزمون نقش');await submit(admin,'/api/master-data/departments/save','ثبت واحد سازمانی');
     await users(admin);
     const reviewer=await makeUser(admin,{code:'multi-review-ui',primary:'ACCOUNTING',extra:'APPROVER'});

@@ -331,8 +331,10 @@ export function scopeState(state: TreasuryDatabaseState, viewer: User, auth: Eff
     id: u.id, name: u.name, role: u.role, personnelCode: '', department: u.department, company: u.company,
     additionalRoles: u.additionalRoles, supervisorId: u.supervisorId, supervisorName: u.supervisorName, isActive: u.isActive,
   } as User));
+  const supervisorCompanyCandidates=[...new Set([...(state.companies||[]).flatMap(c=>[c.id,c.name]),...(state.roleConfigs||[]).filter(r=>getUserRoles(viewer).includes(r.role)).flatMap(r=>r.allowedCompanies||[]),viewer.company].filter((v):v is string=>typeof v==='string'&&!!v.trim()))];
+  const managedUsers=!full&&p.canManageUsers?users.map(u=>{const supCompany=companyPolicy(u,state);return {...u,supervisorAllowedCompanies:supervisorCompanyCandidates.filter(value=>company.has(value)&&supCompany.has(value))};}):users;
   const scoped: TreasuryDatabaseState = {
-    ...state, users, advanceRequests, paymentRequests, batchPayments,
+    ...state, users:managedUsers, advanceRequests, paymentRequests, batchPayments,
     roleConfigs:state.roleConfigs?.filter(r=>full||getUserRoles(viewer).includes(r.role)||(p.canManageUsers||p.canManageRoles)&&company.role(r.role)),
     companies:(state.companies||[]).filter(c=>full||company.has(c.id)||company.has(c.name)),
     departments:(state.departments||[]).filter(r=>full||company.entity(r)),costCenters:(state.costCenters||[]).filter(r=>full||company.entity(r)),

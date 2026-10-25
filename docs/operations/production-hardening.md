@@ -1,8 +1,28 @@
-# تثبیت و ظرفیت عملیاتی خزانه — checkpoint به‌روزشده ۲۰۲۶/۱۰/۲۳
+# تثبیت و ظرفیت عملیاتی خزانه — checkpoint به‌روزشده ۲۰۲۶/۱۰/۲۴
 
-## checkpoint فعال v50 — PASS / DEPLOYED
+## checkpoint فعال v55 — PASS / DEPLOYED
 
-مرجع **فعلی**: [کنترل انتشار v50](release-v50-readiness.md). بازگشایی `2026-10-23T20:13:58.040Z`، سورس Git `5cb1859f7dd194dec071b4ff7d0a15fe561bcec1`، manifest=`abd40ac3ff0a1da8fcc8e9e5a71d50d2fb5c72e455851b77c2f83826b8a7f314`، مسیر `/home/shahrahsystem_dev/khazaneh-release-abd40ac3ff0a`. Production از نگهداری خارج است؛ داده/رمزadmin/بکاپ‌ها حفظ شدند؛ **خام‌سازی مجدد انجام نشد**.
+[انتشار جست‌وجوی مرکز هزینه](release-v55-cost-center-search.md)، manifest=`86778ed21002a4d1ec37f63c59a2074452b5085e62b06b42829f7598cf0a7566`؛ فقط UI، backend/storage همان v54b. بکاپ تازه۵۹فایل و restore مستقل خارج سرور، startup raw برابر، همان رمز/نقش/فایل/DB و health/مرورگر PASS؛ سایت باز است. فشار جدید و عملیات مالی زنده NOT RUN. plan و بازگشت CURRENT با حفظ ثبت‌های جدید در رکورد انتشار؛ checkpointهای پایین تاریخی‌اند.
+
+## checkpoint فعال v54b — PASS / DEPLOYED
+
+[رکورد انتشار شرکت‌های نقش](release-v54-role-companies.md)، manifest=`c04924ad94ba0b14026a0778bf15ebfa53de64b5a4ff0fbe08ef393f5afa94b6`، همان SQLite/schema۱/DB/vault، با حفظ همهٔ اطلاعات خارج از patch صریح APPROVER.allowedCompanies و audit/metadata آن. بکاپ/restore مستقل و rollbackCURRENT Linux PASS؛ سایت باز، نشست موجود/health/فایل/مرورگر سالم است. جزئیات قفل patch، plan و حدود آزمون در رکورد مرجع‌اند؛ فشار جدید NOT RUN. checkpointهای پایین تاریخی‌اند.
+
+## checkpoint فعال v53f — PASS / DEPLOYED
+
+مرجع جاری [انتشار منوها و اختیارات](release-v53-menu-permissions.md)، manifest=`e845223b6489f8abe1fd385df7a9cbbb6e80c7a621b5038b47fea864f1c0043e` و مسیر `/home/shahrahsystem_dev/khazaneh-release-e845223b6489` است. پس از تأیید صریح همین نسخه توسط مالک، با توقف/drain،بکاپ سازگار۵۹فایل وrestore مستقل خارج سرور منتشر شد؛ همانSQLite/schema۱،رمزها،کلیدها وکلDB/تنظیمات نقش‌ها برابر،بدونreset/migration/تغییرجمعیACL. سایت باز وhealth/نشست موجود مدیر/فایل/مرورگر PASS است. rollbackCURRENTباهمانناشرv53 درLinuxمصنوعی تمرین شد؛ backupliveقدیمی رویثبتجدیدrestore نشود. جزئیات plan/hash/فرمان بازگشت و محدودیت ناوبری v52b دررکوردانتشارند. checkpointهای زیر تاریخی‌اند.
+
+## checkpoint قبلی v52b — PASS / DEPLOYED
+
+مرجع فعلی [انتشار نام شاهراه](release-v52-branding.md)، manifest=`2b1371f9f187e9b221615b7ebe62778abca0459f4a3deb47c6627bfbead9934e` و مسیر `/home/shahrahsystem_dev/khazaneh-release-2b1371f9f187`؛ کنترلعمومی09:52:58UTC،۲۰۲۶/۱۰/۲۴. همانDB/privatevault/رمزها و تمامثبت‌های تازه حفظ؛ فقط برندنمایشی وURLنسخه‌دارSVG. بکاپتازه/restore مستقل/rollbackCURRENTdata،۱۸تست هدفمند ومرورگرPASS؛ بهگیت‌های قبلی سازگار ارجاع شده،نه ادعایfullsuiteجدید. سایتبازاست وناشرخام/resetقدیمی ممنوع.
+
+## checkpoint قبلی v51 — PASS / DEPLOYED
+
+مرجع فعلی [انتشار v51](release-v51-inquiry-settings.md): بازگشایی `2026-10-24T09:01:52.090Z`؛ manifest=`846bab97482f626acddee831b4772e18e43cac46a1ce338bb15328b000a94688`؛ مسیر `/home/shahrahsystem_dev/khazaneh-release-846bab97482f`. همان DB/فایل/رمزهای جاری، بدون reset/migration؛ مدیریت امن اتصال Production آماده ولی مصرف سرویس هنوز بدون کلید/فعال‌سازی مالک بسته است. guard پیامک/سرویس‌های دیگر true؛ Stage key منتقل نشد.۳۹۰تستSQLite،مرورگر،بکاپ/restore خارج‌سرور و rollback باCURRENT DB/vault PASS. محدودیت JSON و NOT RUNهای واقعی در گزارش‌اند. ناشر این ارتقا فقط نسخهٔ منجمد upgrade-preserve-v51.cjs و plan ثبت‌شده است؛ ناشرهای raw تاریخی ممنوع‌اند.
+
+## checkpoint قبلی v50 — PASS / DEPLOYED
+
+مرجع قبلی: [کنترل انتشار v50](release-v50-readiness.md). بازگشایی `2026-10-23T20:13:58.040Z`، سورس Git `5cb1859f7dd194dec071b4ff7d0a15fe561bcec1`، manifest=`abd40ac3ff0a1da8fcc8e9e5a71d50d2fb5c72e455851b77c2f83826b8a7f314`، مسیر `/home/shahrahsystem_dev/khazaneh-release-abd40ac3ff0a`. داده/رمزadmin/بکاپ‌ها حفظ شدند؛ **خام‌سازی مجدد انجام نشد**.
 
 ۳۷۶تست هرadapter،۱۲مسیرمرورگر،Linux۶۰کاربرمستقل/۱۰k باثبتp95=۴٫۴۰۵ثانیه،restore مستقل وخارجسرور،rollbackباCURRENT DB وcrashrecovery PASS. پایشپس‌انتشار۳۴asset،health200،401ناشناس،PIDثابت/restart0/error0 PASS. پیامک/بانک واقعی همچنان خاموش وNOT RUN؛coldinit≈۳۱s/reportp95≈۷s و سقف۵۰هزارردیفگزارش محدودیت‌اند. این سنجش کوتاه تضمین ظرفیتآینده نیست.
 

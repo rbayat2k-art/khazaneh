@@ -1,4 +1,4 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import * as XLSX from 'xlsx';
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import crypto from 'node:crypto';import * as XLSX from 'xlsx';
 import {BANK_IMPORT_COLUMNS,assessBankImport,bankImportShapeError,type BankImportInput} from '../src/utils/bank-account-import';
 import {readBankWorkbook,validateBankWorkbookZip} from '../src/utils/bank-account-workbook';
 const input=(rowNumber=2,extra:Record<string,string>={}):BankImportInput=>({rowNumber,values:{bankName:'بانک ملت',accountTitle:'TEST account',companyName:'TEST',accountNumber:'001234567890',...extra}});
@@ -10,6 +10,24 @@ const values=(extra:Record<string,string>={})=>BANK_IMPORT_COLUMNS.map(([key])=>
 test('bank import normalizes Persian digits without losing zeros and keeps every authored field',()=>{
   const row=input(2,{accountNumber:'۰۰۱۲۳۴۵۶۷۸۹۰',iban:'IR'+'۰'.repeat(24),cardNumber:'۰'.repeat(16),branchCode:'۰۰۷',branchName:'TEST branch',accountType:'تنخواه',status:'غیرفعال',description:'TEST description',allowedPaymentMethods:'پایا، داخلی'});
   const report=assessBankImport([row],[]);assert.equal(report.errorCount,0);const account=report.rows[0].account!;assert.equal(account.accountNumber,'001234567890');assert.equal(account.branchCode,'007');assert.equal(account.isActive,false);assert.deepEqual(account.allowedPaymentMethods,['PAYA','INTERNAL']);assert.equal(account.description,'TEST description');
+});
+
+test('every additional source bank from the owner workbook is admitted with its own identity',()=>{
+ const names=['بانک اقتصاد نوین','بانک ایران زمین','بانک رسالت','بلوبانک','پست بانک ایران','بانک توسعه تعاون','بانک دی','بانک سرمایه','بانک سینا','بانک قرض‌الحسنه مهر ایران','بانک گردشگری','مؤسسه اعتباری ملل'];
+ const report=assessBankImport(names.map((bankName,i)=>input(i+2,{bankName,accountNumber:'00123456'+String(i).padStart(4,'0')})),[]);
+ assert.equal(report.errorCount,0);assert.equal(report.newCount,12);assert.deepEqual(report.rows.map(r=>r.account!.bankName),names);
+ const two=assessBankImport([input(2,{bankName:'بلوبانک'}),input(3,{bankName:'بانک سامان'})],[]);assert.equal(two.newCount,2);assert.equal(two.errorCount,0);
+});
+
+test('known short names match existing banks without rewriting records or hiding conflicts',()=>{
+ const aliases=[['اقتصاد نوین','بانک اقتصاد نوین'],['ایران زمین','بانک ایران زمین'],['رسالت','بانک رسالت'],['بلو بانک','بلوبانک'],['پست بانک','پست بانک ایران'],['توسعه تعاون','بانک توسعه تعاون'],['دی','بانک دی'],['سرمایه','بانک سرمایه'],['سینا','بانک سینا'],['قرض الحسنه مهر ایران','بانک قرض‌الحسنه مهر ایران'],['گردشگری','بانک گردشگری'],['موسسه اعتباری ملل','مؤسسه اعتباری ملل'],['رفاه','بانک رفاه کارگران'],['صادرات','بانک صادرات ایران'],['ملی','بانک ملی ایران']];
+ for(const [alias,canonical] of aliases){
+  const normalized=assessBankImport([input(2,{bankName:alias+' '})],[]);assert.equal(normalized.errorCount,0,canonical);assert.equal(normalized.rows[0].account!.bankName,canonical);
+  const existing={...normalized.rows[0].account!,id:'TEST-'+canonical,bankName:alias,createdAt:'TEST'},before=JSON.stringify(existing);
+  const duplicate=assessBankImport([input(2,{bankName:canonical})],[existing]);assert.equal(duplicate.errorCount,0);assert.equal(duplicate.duplicateCount,1);assert.equal(JSON.stringify(existing),before);
+  assert.equal(assessBankImport([input(2,{bankName:canonical,accountTitle:'TEST DIFFERENT'})],[existing]).errorCount,1);
+ }
+ for(const bankName of ['بانک ناشناخته TEST','__proto__','constructor'])assert.equal(assessBankImport([input(2,{bankName})],[]).errorCount,1);
 });
 test('bank import rejects two new defaults and conflicting cross-linked identifiers without mutating the catalogue',()=>{
   const duplicates=assessBankImport([input(2,{isDefault:'بله'}),input(3,{accountNumber:'001234567891',isDefault:'بله'})],[]);assert.equal(duplicates.errorCount,2);
@@ -47,4 +65,9 @@ test('bank workbook ZIP guards reject oversized, corrupt and falsely expanded ZI
 test('the downloadable template has matching headers, text identifiers, no sample accounts and stays within parser limits',()=>{
   const bytes=fs.readFileSync('public/templates/bank-accounts-template.xlsx'),buffer=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),book=XLSX.read(buffer,{type:'array',cellStyles:true});
   assert.deepEqual(book.SheetNames,['حساب‌ها','راهنما']);assert.deepEqual(BANK_IMPORT_COLUMNS.map(([,label])=>label),XLSX.utils.sheet_to_json(book.Sheets['حساب‌ها'],{header:1})[0]);assert.equal(book.Sheets['حساب‌ها'].D2.z,'@');assert.equal(book.Sheets['حساب‌ها'].I201.z,'@');assert.equal(readBankWorkbook(buffer).rows.length,0);assert.match(readBankWorkbook(buffer).errors[0],/حسابی برای ورود ندارد/);
+});
+
+test('the template download URL is bound to its bytes so a cached older bank catalogue is not reused',()=>{
+ const hash=crypto.createHash('sha256').update(fs.readFileSync('public/templates/bank-accounts-template.xlsx')).digest('hex').slice(0,12),dialog=fs.readFileSync('src/components/BankAccountImportDialog.tsx','utf8');
+ assert.ok(dialog.includes('/templates/bank-accounts-template.xlsx?v='+hash));
 });
