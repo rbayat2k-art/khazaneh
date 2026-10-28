@@ -1,3 +1,11 @@
+## Production جاری v93b — DEPLOYED، ۲۰۲۶/۱۰/۲۸
+
+[رکورد انتشار پیامک](../operations/release-v93-sms-response.md)؛ manifest=a79c07ceee1cab254f315e64defa29bb266a229de5e75ad23e7b7332e509ea0a. هر۷۶۱تست درSQLite/JSON، Linux CURRENT/سهمیه و backup/restore۲۱۰فایل PASS؛ فقط تشخیص پاسخ فراز اصلاح شد. همان data/رمز/ACL/کلید/سهمیه محفوظ؛ خرید منتشر نشد. توقف ناشی از نبود نشست قبلی با guard محدودِ آزموده مدیریت شد؛ سپس ورود عادی مالک و live-auth/settings PASS؛ سلامت/401/assets/DB/restart PASS. بدونreset/replay/cleanup. مجوز GitHub همین نسخه جدا ثبت است.
+
+## Staging v93b — اصلاح تشخیص پاسخ پیامک، منتظر پذیرش
+
+[رکورد و شواهد](../operations/staging-v93-sms-response.md)؛ manifest=a79c07ceee1cab254f315e64defa29bb266a229de5e75ad23e7b7332e509ea0a. هر۷۶۱آزمون درSQLite/JSON، قرارداد پاسخ واقعی، مرورگر و backup/restore Stage PASS؛ تنها parser پیامک تغییر کرد. دامنه همچنانv92c؛ رمز/کلید/نقش/سهمیه و خرید محفوظ، ارسال قبلی تکرار نشد. Stage55178 مستقل و SMS OFF؛ پذیرش و انتشار همین نامزد NOT RUN.
+
 ## Production جاری v92c — DEPLOYED / یادآوری فعال، ۲۰۲۶/۱۰/۲۸
 
 [رکورد بازیابی رمز و یادآوری](../operations/release-v92-otp-reminders.md)؛ manifest=0f5c6d783017abcb533f66d582a4e7ecce74e25409472b51d32e39d1c5464436. شمارنده و حفظ challenge سه‌دقیقه‌ای هنگام تأخیر/خطا؛ یادآوری مسئول فعلی ۸تا۲۱ تهران، >=۴۵دقیقه و حداکثر۲تلاش تجمیعی/روز. ۷۵۴ آزمون متمایز هرadapter، مرورگر/بازبینی، Linux CURRENT با ثبت تازه+ledger، بکاپ۸۰فایل/restore مستقل و سلامت/پایش کوتاه PASS؛ رمز/ACL/مسیر/کلیدها محفوظ، فقط config مصوب+audit اضافه. خرید و۱۵۷ورودی canonical حفظ، بدون commit/push/cleanup. تحویل اولین یادآوری طبیعی هنوز مشاهده نشده؛ تست واقعی دوباره ارسال نشد. بخش‌های پایین تاریخی‌اند.

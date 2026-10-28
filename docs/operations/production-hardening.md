@@ -1,3 +1,7 @@
+## Production جاری v93b — DEPLOYED، ۲۰۲۶/۱۰/۲۸
+
+[رکورد انتشار پیامک](release-v93-sms-response.md)؛ manifest=a79c07ceee1cab254f315e64defa29bb266a229de5e75ad23e7b7332e509ea0a. هر۷۶۱تست درSQLite/JSON، Linux CURRENT/سهمیه و backup/restore۲۱۰فایل PASS؛ فقط تشخیص پاسخ فراز اصلاح شد. همان data/رمز/ACL/کلید/سهمیه محفوظ؛ خرید منتشر نشد. توقف ناشی از نبود نشست قبلی با guard محدودِ آزموده مدیریت شد؛ سپس ورود عادی مالک و live-auth/settings PASS؛ سلامت/401/assets/DB/restart PASS. بدونreset/replay/cleanup. مجوز GitHub همین نسخه جدا ثبت است.
+
 ## Production جاری v90b — PASS / DEPLOYED، ۲۰۲۶/۱۰/۲۷
 
 [رکورد انتشار استعلام حساب، پرداخت پرسنلی و نقش‌ها](release-v90-role-access.md)؛ manifest=a488d55addb8ca11c06898243b4fe6fa55f4464570053c38e345f936be3e1504؛ بکاپ۶۶فایل وrestoreمستقل، حفظ رمزها/ACLقدیمی/شرکت/سقف/چهارمسیر، فقط۱۸مجوزجدیدمصوب و استعلام مستقیم افراد بدون سرپرست. مهاجرت durableV90-1، Linux CURRENT با ثبت تازه و۳۵۰audit و حفظACL/مسیر PASS؛ build/QA/مرورگر/دامنه/health/پایش کوتاه PASS. خرید منتشر نشد و۱۵۷ورودیcanonical آن محفوظ است؛ checkoutخرید مستقیماًdeployنشود. recovery فقطCURRENT+binaryسازگارv90b، بدونrestoreقدیمی یاdowngrade؛ بدونcleanup/commit/push/بانک‌وپیامک واقعی/فشار تازه. بخش‌های پایین تاریخی‌اند.

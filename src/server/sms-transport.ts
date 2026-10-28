@@ -25,6 +25,9 @@ export function smsEventEnabled(cfg:SmsGatewayConfig,event:string){
  return e==='PAYMENT_EXECUTED'&&!!v?.sendOnPaymentExecuted;
 }
 const senderNumber=(v:string)=>{const s=v.trim();if(/^\+98\d{4,18}$/.test(s))return s;if(/^\d{4,18}$/.test(s))return '+98'+s;throw Error('شماره خط فرستنده معتبر نیست.');};
+// The live Public API returns the created request object (data.id); the public
+// reference also documents a scalar data ID. Read only these two exact shapes.
+function publicRequestId(data:unknown):unknown{return data&&typeof data==='object'&&!Array.isArray(data)&&Object.hasOwn(data,'id')?(data as {id:unknown}).id:data;}
 function providerError(status:number){return status===401?'کلید دسترسی توسط سرویس پذیرفته نشد.':status===403?'سرویس اجازهٔ این ارسال یا استفاده از این خط را نمی‌دهد.':status===402?'اعتبار سرویس برای ارسال کافی نیست.':status===422?'مشخصات ارسال با قرارداد سرویس مطابقت ندارد.':`سرویس پیامک درخواست را نپذیرفت (HTTP ${status}).`;}
 export async function sendFarazSms(cfg:SmsGatewayConfig,recipient:string,message:{text:string;patternCode?:string;variables?:Record<string,string>},fetcher:typeof fetch=fetch){
  const contract=smsContract(cfg);if(!contract)throw Error('اتصال واقعی پیامک تأییدشده نیست.');if(!/^09\d{9}$/.test(recipient))throw Error('شماره گیرنده معتبر نیست.');
@@ -36,9 +39,10 @@ export async function sendFarazSms(cfg:SmsGatewayConfig,recipient:string,message
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000);
  try{const r=await fetcher(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json','Accept':'application/json',...(contract==='FARAZ_PUBLIC'?{'Api-Key':key}:contract==='EDGE'?{Authorization:key}:{Apikey:key})},body:JSON.stringify(body),signal:controller.signal});
   if(!r.ok){void r.body?.cancel().catch(()=>{});return {ok:false,error:providerError(r.status)};}
-  const j=JSON.parse(await readSmsProviderBody(r));const id=contract==='FARAZ_PUBLIC'?j?.data:contract==='EDGE'?j?.data?.message_outbox_ids?.length===1?j.data.message_outbox_ids[0]:null:j?.data?.message_id;
+  const j=JSON.parse(await readSmsProviderBody(r));const id=contract==='FARAZ_PUBLIC'?publicRequestId(j?.data):contract==='EDGE'?j?.data?.message_outbox_ids?.length===1?j.data.message_outbox_ids[0]:null:j?.data?.message_id;
   const success=contract==='FARAZ_PUBLIC'?[200,201].includes(r.status)&&j?.status==='success':contract==='EDGE'?j?.meta?.status===true:j?.code===200&&['OK','SUCCESS'].includes(String(j?.status).toUpperCase());
-  const cleanId=String(id??''),validId=contract==='FARAZ_PUBLIC'?/^[A-Za-z0-9._:-]{1,100}$/.test(cleanId)&&!(typeof id==='number'&&(!Number.isSafeInteger(id)||id<0)):/^\d{1,30}$/.test(cleanId)&&!/^0+$/.test(cleanId);
+  const cleanId=String(id??''),numericText=typeof id==='string'&&/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(id);
+  const validId=contract==='FARAZ_PUBLIC'?/^[A-Za-z0-9._:-]{1,100}$/.test(cleanId)&&(!numericText||/^\d+$/.test(cleanId)&&/[1-9]/.test(cleanId))&&!(typeof id==='number'&&(!Number.isSafeInteger(id)||id<=0)):/^\d{1,30}$/.test(cleanId)&&!/^0+$/.test(cleanId);
   if(!success||!['string','number'].includes(typeof id)||!validId||cleanId.includes(key))return {ok:false,error:'سرویس، پذیرش معتبر پیامک و شناسهٔ پیگیری برنگرداند؛ موفقیت ثبت نشد.'};
   return {ok:true,messageId:cleanId};
  }catch(e:any){return {ok:false,error:e?.name==='AbortError'?'مهلت پاسخ سرویس پیامک تمام شد؛ نتیجهٔ ارسال نامشخص است. پیش از تکرار، پنل سرویس را بررسی کنید.':'ارتباط یا پاسخ سرویس پیامک معتبر نبود؛ پیش از تکرار، وضعیت ارسال در پنل سرویس بررسی شود.'};}finally{clearTimeout(timeout);}

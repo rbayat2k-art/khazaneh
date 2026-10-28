@@ -1,3 +1,12 @@
+## Production v93b و نسخهٔ قبلی v92c — ۲۰۲۶/۱۰/۲۸
+
+به درخواست صریح مالک، source و بستهٔ دقیق منتشرشده در شاخهٔ مستقل codex/production-v93b-snapshot با tagهای v92c و v93b ذخیره می‌شوند. تاریخچهٔ parent از v57b و main/tagهای قبلی محفوظ است؛ force یا بازنویسی تاریخچه انجام نمی‌شود.
+
+- [نسخهٔ جاری v93b](https://github.com/rbayat2k-art/khazaneh/releases/tag/v93b)، manifest=a79c07ceee1cab254f315e64defa29bb266a229de5e75ad23e7b7332e509ea0a، ZIP SHA256=49d488fa4a8e7f851b5ad824c2837bd5947b37c667b764c201fb1b47999ed8c9.
+- [نسخهٔ پیشین v92c](https://github.com/rbayat2k-art/khazaneh/releases/tag/v92c)، manifest=0f5c6d783017abcb533f66d582a4e7ecce74e25409472b51d32e39d1c5464436، ZIP SHA256=9e0b4344ad8c7424dbb7c3f46ccdc9ec8c5e1eb7b9d2f6d9b40a7478125605e0.
+
+هر۱۹۱منبع و۴۷خروجی runtime و manifest با freeze تطبیق و ZIP در مسیر مستقل بازیابی شد؛ source شامل خرید تأییدنشده نیست. ۷۶۱آزمون هرadapter، مرورگر، Linux CURRENT، بکاپ/restore۲۱۰فایل و health/auth/settings پس‌انتشار PASS هستند. payload عمومی با allowlist و تطبیق محرمانهٔ in-memory علیه دادهٔ زنده بررسی شد؛ data/vault/key/رمز/session/PII و ops خصوصی خارج‌اند. GitHub بکاپ اطلاعات خصوصی سامانه نیست. شناسهٔ commit از tag خوانده شود؛ شرح تصمیم و محدودیت‌ها در release-v93-sms-response.md است.
+
 # ذخیرهٔ سورس جاری شاهراه در GitHub — v50
 
 ## snapshot مستقل Production v57b —۲۰۲۶/۱۰/۲۵
