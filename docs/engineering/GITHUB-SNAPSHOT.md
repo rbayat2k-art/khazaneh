@@ -1,3 +1,7 @@
+## تحویل قطعی v93b — انتشار و GitHub موفق
+
+دامنه و نشست واقعی مدیر/تنظیمات PASS؛ پایش 2026-10-28T13:47:17.512Z بدون restart/error و باحفظ claimها و سقف یادآوری PASS. نسخهٔ جاری [v93b](https://github.com/rbayat2k-art/khazaneh/releases/tag/v93b) با commit 7f5449f17c3dde8ac69fc8c4c2a336d0f1f897be و نسخهٔ قبلی [v92c](https://github.com/rbayat2k-art/khazaneh/releases/tag/v92c) با commit 20b7094053c5ca989b8e56503a887098f41112b3 محفوظ‌اند. digest هر دو asset با بستهٔ بازیابی‌شدهٔ محلی برابر است؛ هفت reference قبلی، main و تاریخچهٔ parent حفظ شدند. این ثبت اسکن محدود برمقادیر منتخب محرمانه است، نه ادعای ممیزی جامع PII؛ دادهٔ عملیاتی/کلید/رمز داخل GitHub کپی نشد.
+
 ## Production v93b و نسخهٔ قبلی v92c — ۲۰۲۶/۱۰/۲۸
 
 به درخواست صریح مالک، source و بستهٔ دقیق منتشرشده در شاخهٔ مستقل codex/production-v93b-snapshot با tagهای v92c و v93b ذخیره می‌شوند. تاریخچهٔ parent از v57b و main/tagهای قبلی محفوظ است؛ force یا بازنویسی تاریخچه انجام نمی‌شود.
