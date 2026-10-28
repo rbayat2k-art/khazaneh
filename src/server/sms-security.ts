@@ -1,7 +1,9 @@
 import type {SmsDispatchLogEntry} from '../types/treasury';
+export const maskSmsPhone=(phone:string)=>/^09•••••\d{4}$/.test(phone)?phone:/^09\d{9}$/.test(phone)?'09•••••'+phone.slice(-4):'شماره ثبت‌شده';
 export const privateSmsEvent=(event:string)=>['OTP_RECOVERY','ADMIN_PASSWORD_RESET','PASSWORD_RESET'].includes(event);
 /** Also protects historical logs at the read boundary, without rewriting real data. */
 export function safeSmsLog<T extends SmsDispatchLogEntry>(entry:T):T{
+  if(['ADMIN_TEST','ADMIN_TEST_SMS'].includes(entry.eventType))return {...entry,recipientPhone:maskSmsPhone(entry.recipientPhone),messagePreview:'آزمون اتصال پیامک؛ متن آزمایشی ذخیره نمی‌شود.',messageSummary:'آزمون اتصال پیامک؛ متن آزمایشی ذخیره نمی‌شود.'};
   if(!privateSmsEvent(entry.eventType))return entry;
   const preview='پیام امنیتی حساب کاربری؛ متن و کد محرمانه ثبت یا نمایش داده نمی‌شود.';
   return {...entry,messagePreview:preview,messageSummary:preview,providerMessageId:null,errorDetail:entry.errorDetail?'ارسال پیام امنیتی ناموفق بود.':null,errorMessage:entry.errorMessage?'ارسال پیام امنیتی ناموفق بود.':null};

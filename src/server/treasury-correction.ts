@@ -1,6 +1,7 @@
+import {chainStateError} from '../utils/request-approval-chain';
 import type {TreasuryDatabaseState,User,TreasuryCorrection} from '../types/treasury';
 import type {EffectiveAccess,AccessDecision} from './access-control';
-import {type CorrectionRow,openTreasuryCorrection,fullyUnpaid} from '../utils/treasury-correction';
+import {type CorrectionRow,openTreasuryCorrection,fullyUnpaid,correctionApproverId} from '../utils/treasury-correction';
 import {hasDeletionFinancialLinks} from '../utils/request-deletion';
 import {bankFieldsError,normalizedBankFields} from '../utils/bank-identifiers';
 import {invalidateBankInquiry} from '../utils/bank-inquiry';
@@ -23,6 +24,7 @@ export function correctionStageAllowed(user:User,stage:TreasuryCorrection['toSta
   (stage==='REQUESTER'?!!p.canAccessRequesterSection:stage==='APPROVER'?!!p.canAccessApproverCartable:!!p.canAccessAccountingCartable);
 }
 export function correctionAdmission(body:any,returning:boolean,row:CorrectionRow,parent:any,viewer:User,auth:EffectiveAccess,db:TreasuryDatabaseState):AccessDecision{
+ const chain=chainStateError(row);if(chain)return {status:409,error:chain};
  const invalid=correctionInputError(body,returning);if(invalid)return invalid;
  if(!returning&&(!openTreasuryCorrection(row)||row.treasuryCorrection!.toUserId!==viewer.id||!correctionStageAllowed(viewer,row.treasuryCorrection!.toStage,auth)))return denied('فقط گیرندهٔ ارجاع با مجوز جاری می‌تواند این اصلاح فنی را ارسال کند.');
  if(!Number.isSafeInteger(body.expectedVersion)||body.expectedVersion!==(row.version||1))return {status:409,error:'نسخه درخواست تغییر کرده است؛ فهرست را تازه‌سازی کنید.'};
@@ -30,13 +32,13 @@ export function correctionAdmission(body:any,returning:boolean,row:CorrectionRow
  if(!returning){
   // Do not create banking fields on the existing single-advance contract.
   if(body.itemType==='ADVANCE'&&['accountOrCard','iban','bankName'].some(k=>body[k]!==undefined))return {status:400,error:'این مساعده فقط توضیحات و مدارک اصلاحی دارد.'};
-  const error=bankFieldsError({...row,...body},body.itemType==='PAYMENT'||body.itemType==='BATCH_ITEM'&&parent.batchType!=='ADVANCE');if(error)return {status:400,error};
+  const error=bankFieldsError({...row,...body},body.itemType==='PAYMENT'&&!(row as any).personnelBalanceRef||body.itemType==='BATCH_ITEM'&&parent.batchType!=='ADVANCE');if(error)return {status:400,error};
   if(row.paidAmount||row.paidAmountSoFar||row.paymentHistory?.length||row.paymentExecutions?.length||hasDeletionFinancialLinks(db,row.id))return {status:409,error:'این ردیف دارای سابقهٔ پرداخت است و از مسیر اصلاح فنی قابل اقدام نیست.'};
  }
  return null;
 }
 export function correctionRecipientId(parent:any,row:CorrectionRow,stage:TreasuryCorrection['toStage']):string|undefined{
- return stage==='REQUESTER'?parent.requesterId:stage==='APPROVER'?(row.approvedBySupervisorUserId===parent.supervisorId?parent.supervisorId:undefined):row.approvedByAccountingUserId||undefined;
+ return stage==='REQUESTER'?parent.requesterId:stage==='APPROVER'?correctionApproverId(parent,row):row.approvedByAccountingUserId||undefined;
 }
 export function applyTreasuryReturn(row:CorrectionRow,parent:any,viewer:User,recipient:User,stage:TreasuryCorrection['toStage'],reason:string,at:string){
  const previousStatus=row.status as 'Pending_Treasury'|'In_Payment',version=row.version||1;

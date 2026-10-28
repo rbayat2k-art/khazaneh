@@ -1,3 +1,4 @@
+import {RecoveryOtpForm} from './RecoveryOtpForm';
 import React, { useState, useRef } from 'react';
 import {
   Lock,
@@ -232,82 +233,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       void executeLoginRequest(acc.personnelCode, acc.password);
     } else {
       focusLoginForm();
-    }
-  };
-
-  const handleSendOtpRecovery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!recPersonnelCode.trim() || !recPhone.trim()) {
-      setRecError('وارد کردن کد پرسنلی و شماره تلفن همراه ثبت‌شده در سامانه الزامی است.');
-      return;
-    }
-    setRecLoading(true);
-    setRecError(null);
-    setRecSmsUnavailable(false);
-    setRecSuccess(null);
-    try {
-      const res = await fetch('/api/auth/recovery-send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          personnelCode: recPersonnelCode.trim(),
-          phone: recPhone.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setRecError(data.error || 'خطا در ارسال کد تأیید پیامکی.');
-        if (data.smsUnavailable) {
-          setRecSmsUnavailable(true);
-        }
-        return;
-      }
-      setRecOtpSent(true);
-    } catch {
-      setRecError('خطا در ارتباط با سرور جهت ارسال کد تأیید پیامکی.');
-    } finally {
-      setRecLoading(false);
-    }
-  };
-
-  const handleVerifyOtpRecovery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!recOtpCode.trim() || !recNewPassword || !recConfirmPassword) {
-      setRecError('لطفاً کد تأیید پیامکی، رمز عبور جدید و تکرار آن را وارد کنید.');
-      return;
-    }
-    setRecLoading(true);
-    setRecError(null);
-    try {
-      const res = await fetch('/api/auth/recovery-verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          personnelCode: recPersonnelCode.trim(),
-          phone: recPhone.trim(),
-          otpCode: recOtpCode.trim(),
-          newPassword: recNewPassword,
-          confirmPassword: recConfirmPassword,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setRecError(data.error || 'خطا در تأیید کد پیامکی.');
-        return;
-      }
-      setPersonnelCode(recPersonnelCode.trim());
-      setPassword('');
-      setRecOtpSent(false);
-      setRecOtpCode('');
-      setRecNewPassword('');
-      setRecConfirmPassword('');
-      setRecSuccess({
-        message: data.message || 'رمز عبور شما با موفقیت تغییر یافت. اکنون می‌توانید وارد شوید.',
-      });
-    } catch {
-      setRecError('خطا در ارتباط با سرور جهت تغییر رمز عبور.');
-    } finally {
-      setRecLoading(false);
     }
   };
 
@@ -785,148 +710,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                           </button>
                         </div>
                       </div>
-                    ) : recoveryMethod === 'SMS_OTP' ? (
-                      <div className="space-y-3.5">
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-950 leading-relaxed">
-                          در صورتی که <strong>درگاه پیامک سازمانی</strong> فعال باشد، کد تأیید ۶ رقمی به تلفن همراه ثبت‌شده در پرونده پرسنلی شما ارسال می‌گردد.
-                        </div>
-
-                        {recError && (
-                          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-2 leading-relaxed">
-                            <div className="flex items-start gap-2">
-                              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-                              <span>{recError}</span>
-                            </div>
-                            {recSmsUnavailable && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRecoveryMethod('ADMIN_TICKET');
-                                  setRecError(null);
-                                  setRecSmsUnavailable(false);
-                                }}
-                                className="w-full py-2 px-3 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-bold text-xs transition cursor-pointer"
-                              >
-                                ثبت تیکت بازیابی برای مدیر سیستم
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {!recOtpSent ? (
-                          <form onSubmit={handleSendOtpRecovery} className="space-y-3.5" noValidate>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-700 mb-1">
-                                کد پرسنلی / نام کاربری <span className="text-rose-600">*</span>
-                              </label>
-                              <div className="relative">
-                                <UserIcon className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
-                                <input
-                                  type="text"
-                                  required
-                                  value={recPersonnelCode}
-                                  onChange={(e) => setRecPersonnelCode(e.target.value)}
-                                  placeholder="مثال: 1042"
-                                  className="w-full pr-9 pl-3 py-2 text-xs border border-slate-300 rounded-lg font-mono-num focus:outline-none focus:ring-2 focus:ring-blue-600"
-                                />
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-bold text-slate-700 mb-1">
-                                شماره تلفن همراه ثبت‌شده در پرونده <span className="text-rose-600">*</span>
-                              </label>
-                              <div className="relative">
-                                <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
-                                <input
-                                  type="text"
-                                  required
-                                  value={recPhone}
-                                  onChange={(e) => setRecPhone(e.target.value)}
-                                  placeholder="0912..."
-                                  className="w-full pr-9 pl-3 py-2 text-xs border border-slate-300 rounded-lg font-mono-num focus:outline-none focus:ring-2 focus:ring-blue-600"
-                                />
-                              </div>
-                            </div>
-
-                            <button
-                              type="submit"
-                              disabled={recLoading}
-                              className="w-full py-2.5 px-4 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition cursor-pointer"
-                            >
-                              {recLoading
-                                ? 'در حال ارتباط با درگاه پیامک...'
-                                : 'دریافت کد تأیید پیامکی'}
-                            </button>
-                          </form>
-                        ) : (
-                          <form
-                            onSubmit={handleVerifyOtpRecovery}
-                            className="space-y-3.5"
-                            noValidate
-                          >
-                            <div>
-                              <label className="block text-xs font-bold text-slate-700 mb-1">
-                                کد تأیید ۶ رقمی پیامک‌شده <span className="text-rose-600">*</span>
-                              </label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                maxLength={6}
-                                required
-                                value={recOtpCode}
-                                onChange={(e) => setRecOtpCode(e.target.value)}
-                                placeholder="------"
-                                className="w-full px-3 py-2 text-center tracking-widest text-sm border border-blue-300 rounded-lg font-mono-num focus:outline-none focus:ring-2 focus:ring-blue-600"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-700 mb-1">
-                                رمز عبور جدید (حداقل ۵ کاراکتر) <span className="text-rose-600">*</span>
-                              </label>
-                              <input
-                                type="password"
-                                required
-                                value={recNewPassword}
-                                minLength={5}
-                                onChange={(e) => setRecNewPassword(e.target.value)}
-                                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono-num focus:outline-none focus:ring-2 focus:ring-blue-600"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-700 mb-1">
-                                تکرار رمز عبور جدید <span className="text-rose-600">*</span>
-                              </label>
-                              <input
-                                type="password"
-                                required
-                                value={recConfirmPassword}
-                                minLength={5}
-                                onChange={(e) => setRecConfirmPassword(e.target.value)}
-                                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono-num focus:outline-none focus:ring-2 focus:ring-blue-600"
-                              />
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setRecOtpSent(false)}
-                                className="text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
-                              >
-                                تغییر شماره / ارسال مجدد
-                              </button>
-                              <button
-                                type="submit"
-                                disabled={recLoading}
-                                className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer"
-                              >
-                                {recLoading ? 'در حال ثبت...' : 'تأیید کد و تغییر رمز'}
-                              </button>
-                            </div>
-                          </form>
-                        )}
-                      </div>
                     ) : (
-                      <form onSubmit={handleRecoverySubmit} className="space-y-3.5" noValidate>
+                      <>
+                        <RecoveryOtpForm hidden={recoveryMethod!=='SMS_OTP'} personnelCode={recPersonnelCode} phone={recPhone} onPersonnelCode={setRecPersonnelCode} onPhone={setRecPhone} onTicket={()=>setRecoveryMethod('ADMIN_TICKET')} onCompleted={(code,message)=>{setPersonnelCode(code);setPassword('');setRecSuccess({message});}}/>
+                        {recoveryMethod==='ADMIN_TICKET'&&(<form onSubmit={handleRecoverySubmit} className="space-y-3.5" noValidate>
                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed">
                           در صورت عدم دسترسی به پیامک، بازیابی رمز عبور از طریق ثبت تیکت رسمی برای{' '}
                           <strong>مدیر سامانه</strong> انجام می‌شود تا رمز موقت یک‌بارمصرف صادر گردد.
@@ -996,7 +783,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                         >
                           {recLoading ? 'در حال ثبت درخواست...' : 'ثبت درخواست بازیابی رمز عبور'}
                         </button>
-                      </form>
+                      </form>)}
+                      </>
                     )}
                   </div>
                 )}

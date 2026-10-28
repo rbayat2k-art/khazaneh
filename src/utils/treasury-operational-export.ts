@@ -1,7 +1,9 @@
+import{destinationRecipient,isPersonnelAdvance,personnelName,personnelCardCompletion}from'./financial-party';
 import type {UnifiedTreasuryItem} from './excelExport';
 import {rialCell,confirmedDestinationAccount,type ReportRow} from './report-cells';
 import {reportWorkbook,downloadReportWorkbook} from './report-workbook';
 import {requestTimeFields} from './record-time';
+import {formatTreasuryDescriptions,treasuryWorkbookBytes} from './treasury-workbook-format';
 
 export function buildTreasuryOperationalWorkbook(items:UnifiedTreasuryItem[]){
  const completed=items.some(i=>i.completedEntry);
@@ -19,11 +21,12 @@ export function buildTreasuryOperationalWorkbook(items:UnifiedTreasuryItem[]){
    const time=completed?item:requestTimeFields(item.rawBatch||raw,[raw]);
    rows.push({
     'ردیف':rows.length+1,'کد رهگیری سند':item.trackingCode||item.id,'شناسه ردیف گروهی':batch?raw.id:'',
-    'نام دریافت‌کننده (صاحب حساب)':(batch?raw.bankPayeeName||raw.payeeName:item.payeeName)||'ثبت نشده',
+    'نام پرسنل':raw.personnelBalanceRef?.personnelName||(isPersonnelAdvance(batch?'BATCH_ITEM':item.type,item.rawBatch||raw,raw)?personnelName(batch?'BATCH_ITEM':item.type,item.rawBatch||raw,raw):''),
+    'نام دریافت‌کننده (صاحب حساب)':destinationRecipient(batch?'BATCH_ITEM':item.type,item.rawBatch||raw,raw)||'ثبت نشده',
     'شرح سند حسابداری / بابت پرداخت':batch?raw.description||item.rawBatch?.title||'':item.description||'',
     'مرکز هزینه':manual||item.type==='ADVANCE'?'':batch?raw.costCenter||'':item.costCenter||'',
     'بانک مقصد':manual?'':batch?raw.bankName||'':item.destinationBank||'',
-    'شماره کارت مقصد':batch?raw.accountOrCard||'':item.cardNumber||item.rawPayment?.accountOrCard||item.rawAdvance?.accountOrCard||'',
+    'شماره کارت مقصد':(batch?raw.accountOrCard:item.cardNumber||item.rawPayment?.accountOrCard||item.rawAdvance?.accountOrCard)||personnelCardCompletion(batch?'BATCH_ITEM':item.type,item.rawBatch||raw,raw),
     'شماره حساب مقصد':confirmedDestinationAccount(raw),'شماره شبا مقصد':batch?raw.iban||'':item.rawPayment?.iban||item.rawAdvance?.iban||'',
     [completed?'مبلغ پرداخت این نوبت (ریال)':'مبلغ نهایی قابل پرداخت (ریال)']:rialCell(amount),
     'تاریخ ثبت درخواست':time?.registrationDate||'ثبت نشده','ساعت ثبت درخواست':time?.registrationTime||'ثبت نشده',
@@ -39,9 +42,9 @@ export function buildTreasuryOperationalWorkbook(items:UnifiedTreasuryItem[]){
  }
  const amountKey=completed?'مبلغ پرداخت این نوبت (ریال)':'مبلغ نهایی قابل پرداخت (ریال)';
  rows.push({'ردیف':'','کد رهگیری سند':'جمع کل',[amountKey]:rialCell(total)});
- return {workbook:reportWorkbook([{name:completed?'پرداخت‌های ثبت‌شده':'فهرست عملیاتی پرداخت',rows}]),rowCount:rows.length-1,totalAmount:total<=BigInt(Number.MAX_SAFE_INTEGER)?Number(total):total};
+ return {workbook:formatTreasuryDescriptions(reportWorkbook([{name:completed?'پرداخت‌های ثبت‌شده':'فهرست عملیاتی پرداخت',rows}])),rowCount:rows.length-1,totalAmount:total<=BigInt(Number.MAX_SAFE_INTEGER)?Number(total):total};
 }
 export function exportTreasuryOperational(items:UnifiedTreasuryItem[],options?:{fileNamePrefix?:string;sheetTitle?:string}){
  const {workbook,...result}=buildTreasuryOperationalWorkbook(items);
- return {...result,fileName:downloadReportWorkbook(workbook,options?.fileNamePrefix||'treasury-operational')};
+ return {...result,fileName:downloadReportWorkbook(workbook,options?.fileNamePrefix||'treasury-operational',treasuryWorkbookBytes(workbook))};
 }

@@ -1,7 +1,7 @@
 import React,{useState} from 'react';
 import {X,RotateCcw} from 'lucide-react';
 import type {UnifiedTreasuryItem} from '../utils/excelExport';
-import {fullyUnpaid,type TreasuryReturn,type CorrectionRow} from '../utils/treasury-correction';
+import {fullyUnpaid,correctionApproverId,type TreasuryReturn,type CorrectionRow} from '../utils/treasury-correction';
 import {formatRial} from '../utils/sorting';
 export function treasuryReturnRows(item:UnifiedTreasuryItem):CorrectionRow[]{
  return (item.type==='BATCH'?item.batchItems||[]:[item.rawPayment||item.rawAdvance]).filter((r):r is CorrectionRow=>!!r&&fullyUnpaid(r));
@@ -9,7 +9,7 @@ export function treasuryReturnRows(item:UnifiedTreasuryItem):CorrectionRow[]{
 export function TreasuryReturnDialog({item,onClose,onReturn}:{item:UnifiedTreasuryItem;onClose:()=>void;onReturn:(payload:TreasuryReturn)=>Promise<{ok:boolean;error?:string}>}){
  const rows=treasuryReturnRows(item),[selected,setSelected]=useState(rows.length===1?rows[0].id:''),[stage,setStage]=useState(''),[reason,setReason]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const row=rows.find(r=>r.id===selected),parent=item.rawBatch||item.rawPayment||item.rawAdvance;
- const destinations=[{id:'REQUESTER',name:parent?.requesterName,label:'درخواست‌کننده',available:!!parent?.requesterId},{id:'APPROVER',name:parent?.supervisorName,label:'سرپرست تأییدکننده',available:!!parent?.supervisorId&&row?.approvedBySupervisorUserId===parent.supervisorId},{id:'ACCOUNTING',name:row?.approvedByAccountingName,label:'حسابدار تأییدکننده',available:!!row?.approvedByAccountingUserId}];
+ const destinations=[{id:'REQUESTER',name:parent?.requesterName,label:'درخواست‌کننده',available:!!parent?.requesterId},{id:'APPROVER',name:row?.approvedBySupervisorName||parent?.supervisorName,label:'سرپرست تأییدکننده',available:!!row&&!!correctionApproverId(parent,row)},{id:'ACCOUNTING',name:row?.approvedByAccountingName,label:'حسابدار تأییدکننده',available:!!row?.approvedByAccountingUserId}];
  return <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="treasury-return-title">
  <form className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-5 space-y-4 shadow-xl" onSubmit={async e=>{e.preventDefault();if(!row||!stage||!reason.trim()){setError('ردیف، گیرنده و علت عودت را مشخص کنید.');return;}setBusy(true);setError('');try{const result=await onReturn({itemType:item.type==='BATCH'?'BATCH_ITEM':item.type as 'ADVANCE'|'PAYMENT',requestId:item.id,...(item.type==='BATCH'?{rowId:row.id}:{}),expectedVersion:row.version||1,recipientStage:stage as TreasuryReturn['recipientStage'],reason:reason.trim()});if(result.ok)onClose();else setError(result.error||'عودت ثبت نشد.');}finally{setBusy(false);}}}>
  <fieldset disabled={busy} className="space-y-4"><div className="flex justify-between items-center border-b border-slate-200 pb-3"><div><h3 id="treasury-return-title" className="font-bold text-sm text-slate-900">عودت برای اصلاح</h3><p className="text-xs text-slate-500">{item.trackingCode}</p></div><button type="button" aria-label="بستن عودت" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700"><X className="w-4 h-4"/></button></div>

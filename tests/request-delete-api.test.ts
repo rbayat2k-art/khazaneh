@@ -1,6 +1,7 @@
 import {test,before,after} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {spawn,type ChildProcess} from 'node:child_process';import {pathToFileURL} from 'node:url';
 import {SqliteRecords} from '../src/server/sqlite-records';import {getDefaultPermissionsForRole} from '../src/types/treasury';
 import {requestFixture} from './request-fixture.cjs';
+import {stoppedLegacyFixture} from './stopped-legacy-fixture';
 const parent=process.env.TREASURY_TEST_DIR;if(!parent?.replaceAll('\\','/').startsWith('C:/Users/reza/Desktop/پروژه‌ها/انتشار موقت khazaneh/work/'))throw Error('Explicit disposable request deletion fixture required');
 const root=path.join(parent,'request-delete-api'),base='http://127.0.0.1:55232',sqlite=process.env.TREASURY_TEST_STORAGE==='sqlite',tokens:Record<string,string>={},password='Synthetic-Only!2026';let child:ChildProcess,restart:()=>Promise<void>;
 async function api(route:string,user?:string,body?:any){body=requestFixture(route,body);const r=await fetch(base+'/api'+route,{method:body?'POST':'GET',headers:{'content-type':'application/json',...(user?{authorization:'Bearer '+tokens[user]}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,data:await r.json()};}
@@ -67,7 +68,9 @@ test('duplicate/delete-edit/delete-review races have one winner and failed commi
 test('revoked submission grants and company scope are enforced for an existing session',async()=>{
  const row=await create(),role=(await api('/state','admin')).data.roleConfigs.find((r:any)=>r.role==='REQUESTER');
  for(const override of [{permissions:{...role.permissions,canSubmitSinglePayment:false}},{allowedCompanies:['TEST-OTHER']}]){
-  assert.equal((await api('/roles/save','admin',{...role,...override})).status,200);const held=snapshot();assert.equal((await api('/requests/delete-submitted','requester',del(row))).status,403);assert.equal(snapshot(),held);assert.equal((await api('/roles/save','admin',role)).status,200);
+  const response=await api('/roles/save','admin',{...role,...override});
+  if(override.allowedCompanies){assert.equal(response.status,409);child=await stoppedLegacyFixture(child,root,sqlite,base,db=>{db.roleConfigs=db.roleConfigs.map((r:any)=>r.role===role.role?{...role,...override}:r);});}else assert.equal(response.status,200);
+  const held=snapshot();assert.equal((await api('/requests/delete-submitted','requester',del(row))).status,403);assert.equal(snapshot(),held);assert.equal((await api('/roles/save','admin',role)).status,200);
  }assert.equal((await api('/requests/delete-submitted','requester',del(row))).status,200);
 });
 test('restart keeps private rows/files and deletion audits durable without resurrecting them into the public API',async()=>{

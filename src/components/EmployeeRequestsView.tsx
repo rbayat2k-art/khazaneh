@@ -200,6 +200,9 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
   // 3. Batch Payment Form State
   const [batchTitle, setBatchTitle] = useState('');
+  const [batchCostCenter, setBatchCostCenter] = useState('');
+  React.useEffect(()=>setBatchCostCenter(''),[currentUser.id,currentUser.company]);
+  React.useEffect(()=>{if(batchCostCenter&&!activeCostCenters.some(cc=>cc.name===batchCostCenter))setBatchCostCenter('');},[activeCostCenters,batchCostCenter]);
   type DraftBatchRow=Omit<BatchItem,'id'>&{formKey:string};
   const emptyBatchRow = (itemType: 'PAYMENT' | 'ADVANCE'): DraftBatchRow => ({formKey:crypto.randomUUID(),itemType,payeeName:'',amount:0,accountOrCard:'',iban:'',bankName:'',description:'',invoiceNumber:'',costCenter:'',requestedMonth:itemType==='ADVANCE'?currentJalaliMonth():'',attachments:[]});
   const [batchRows, setBatchRows] = useState<DraftBatchRow[]>([emptyBatchRow('PAYMENT')]);
@@ -370,12 +373,13 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         requesterId: currentUser.id,
         title: batchTitle,
         batchType: 'PAYMENT',
-        items: batchRows.map(({formKey,...row})=>row),
+        items: batchRows.map(({formKey,...row})=>({...row,costCenter:batchCostCenter})),
         attachments: batchGlobalAttachments,
       });
       if (!registered) return;
       uploadGeneration.current++;
       setBatchTitle('');
+      setBatchCostCenter('');
       setBatchRows([emptyBatchRow('PAYMENT')]);
       setBatchGlobalAttachments([]);
       clearUploadInputs(form);
@@ -456,7 +460,8 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
     currentBankName: string;
   }) => {
     const actual=target.itemType==='BATCH_ITEM'?batchPayments.find(b=>b.id===target.requestId)?.items.find(i=>i.id===target.rowId):target.itemType==='PAYMENT'?paymentRequests.find(p=>p.id===target.requestId):advanceRequests.find(a=>a.id===target.requestId);
-    setResubmitTarget({...target,...(actual&&openTreasuryCorrection(actual)?{treasuryCorrection:actual.treasuryCorrection,expectedVersion:actual.version||1}:{})});
+    if(!actual)return;
+    setResubmitTarget({...target,expectedVersion:actual.version||1,...(openTreasuryCorrection(actual)?{treasuryCorrection:actual.treasuryCorrection}:{})});
     setResubmitAmount(String(actual&&openTreasuryCorrection(actual)?actual.approvedAmount??actual.amount:target.currentAmount));
     setResubmitDescription(target.currentDescription);
     setResubmitAccountOrCard(target.currentAccountOrCard);
@@ -468,7 +473,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
   const handleConfirmResubmit = async (event:React.MouseEvent<HTMLButtonElement>) => {
     if (!resubmitTarget) return;
-    if(resubmitTarget.itemType!=='ADVANCE'){const requireCard=resubmitTarget.itemType==='PAYMENT'||batchPayments.find(b=>b.id===resubmitTarget.requestId)?.batchType!=='ADVANCE';const error=bankFieldsError({accountOrCard:resubmitAccountOrCard,iban:resubmitIban},requireCard);if(error){setResubmitError(error);return;}}
+    if(resubmitTarget.itemType!=='ADVANCE'){const requireCard=resubmitTarget.itemType==='PAYMENT'?!paymentRequests.find(p=>p.id===resubmitTarget.requestId)?.personnelBalanceRef:batchPayments.find(b=>b.id===resubmitTarget.requestId)?.batchType!=='ADVANCE';const error=bankFieldsError({accountOrCard:resubmitAccountOrCard,iban:resubmitIban},requireCard);if(error){setResubmitError(error);return;}}
     const controls=event.currentTarget.closest('[role="dialog"]')?.querySelectorAll<HTMLInputElement>('input[data-form-value]');
     if(controls&&Array.from(controls).some(input=>!input.reportValidity())){setResubmitError('ورودی نامعتبر را اصلاح کنید؛ اطلاعات قبلی ثبت نشده است.');return;}
     const amount=Number(resubmitAmount);if(!/^\d+$/.test(resubmitAmount)||!Number.isSafeInteger(amount)||amount<=0){setResubmitError('مبلغ اصلاح‌شده باید عدد صحیح مثبت ریالی باشد.');return;}
@@ -479,9 +484,10 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
         itemType: resubmitTarget.itemType,
         requestId: resubmitTarget.requestId,
         rowId: resubmitTarget.rowId,
-        ...(resubmitTarget.treasuryCorrection?{expectedVersion:resubmitTarget.expectedVersion}:{amount}),
+        expectedVersion:resubmitTarget.expectedVersion,
+        ...(!resubmitTarget.treasuryCorrection?{amount}:{}),
         description: resubmitDescription,
-        ...(resubmitTarget.treasuryCorrection&&resubmitTarget.itemType==='ADVANCE'?{}:{accountOrCard:resubmitAccountOrCard,iban:resubmitIban,bankName:resubmitBankName}),
+        ...(resubmitTarget.itemType==='ADVANCE'?{}:{accountOrCard:resubmitAccountOrCard,iban:resubmitIban,bankName:resubmitBankName}),
         newAttachments: resubmitAttachments,
       });
       if (ok) {
@@ -685,18 +691,19 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                عنوان کلی لیست پرداخت تجمیعی:
-              </label>
-              <input
-                type="text"
-                required
-                value={batchTitle}
-                onChange={(e) => setBatchTitle(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
-                placeholder="مثال: تسویه هزینه مأموریت و اضافه‌کاری نیروهای پروژه آبان‌ماه"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+              <div className="min-w-0">
+                <label htmlFor="batch-payment-title" className="block text-xs font-semibold text-slate-700 mb-1">عنوان کلی لیست پرداخت تجمیعی:</label>
+                <input id="batch-payment-title" type="text" required value={batchTitle} onChange={e=>setBatchTitle(e.target.value)} className="h-9 w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white" placeholder="مثال: هزینه مأموریت نیروهای پروژه آبان‌ماه"/>
+              </div>
+              <div className="min-w-0">
+                <label htmlFor="batch-payment-cost-center" className="block text-xs font-semibold text-slate-700 mb-1">مرکز هزینهٔ کل لیست <span className="text-rose-600">*</span></label>
+                <CostCenterSelect id="batch-payment-cost-center" required value={batchCostCenter} onChange={e=>setBatchCostCenter(e.target.value)} className="h-9 w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg">
+                  <option value="">مرکز هزینه را انتخاب کنید</option>
+                  {activeCostCenters.map(cc=><option key={cc.id} value={cc.name}>{cc.name} ({cc.code})</option>)}
+                </CostCenterSelect>
+                <p className="text-[10px] text-slate-500 mt-1">مرکز انتخاب‌شده برای همهٔ ردیف‌های این لیست ثبت می‌شود.</p>
+              </div>
             </div>
 
             {/* Batch Table - 100% Full Screen with zero horizontal scroll */}
@@ -705,13 +712,12 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 <thead>
                   <tr className="bg-slate-100/80 text-slate-700">
                     <th className="px-1.5 py-2.5 w-[4%] text-center">ردیف</th>
-                    <th className="px-2 py-2.5 w-[13%]">نام ذینفع / نیرو</th>
+                    <th className="px-2 py-2.5 w-[13%]">گیرندهٔ وجه / صاحب حساب</th>
                     <th className="px-2 py-2.5 w-[11%]">مبلغ (ریال)</th>
                     <th className="px-2 py-2.5 w-[15%]">شماره کارت (۱۶ رقمی)</th>
                     <th className="px-2 py-2.5 w-[17%]">شماره شبا (IBAN)</th>
                     <th className="px-2 py-2.5 w-[10%]">بانک مقصد</th>
-                    <th className="px-2 py-2.5 w-[11%]">مرکز هزینه</th>
-                    <th className="px-2 py-2.5 w-[11%]">شرح پرداخت</th>
+                    <th className="px-2 py-2.5 w-[22%]">شرح و بابت پرداخت</th>
                     <th className="px-1.5 py-2.5 w-[5%] text-center">مدارک</th>
                     <th className="px-1 py-2.5 w-[3%] text-center">حذف</th>
                   </tr>
@@ -726,7 +732,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         <input
                           type="text"
                           required
-                          value={row.payeeName}
+                          aria-label={`گیرنده وجه ردیف پرداخت ${idx+1}`} value={row.payeeName}
                           onChange={(e) => {
                             const val = e.target.value;
                             setBatchRows((prev) =>
@@ -738,7 +744,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <RialInput
+                        <RialInput aria-label={`مبلغ ردیف پرداخت ${idx+1}`}
                           required
                           min={1000}
                           value={row.amount || ''}
@@ -755,7 +761,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         </div>
                       </td>
                       <td className="px-2 py-2">
-                        <CardInput
+                        <CardInput aria-label={`شماره کارت ردیف پرداخت ${idx+1}`}
                           required
                           type="text"
                           dir="ltr"
@@ -816,27 +822,9 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         </select>
                       </td>
                       <td className="px-2 py-2">
-                        <CostCenterSelect
-                          value={row.costCenter}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setBatchRows((prev) =>
-                              prev.map((r, i) => (i === idx ? { ...r, costCenter: val } : r))
-                            );
-                          }}
-                          className="w-full px-1.5 py-1.5 text-xs bg-white border border-slate-300 rounded"
-                        >
-                          {activeCostCenters.map((cc) => (
-                            <option key={cc.id} value={cc.name}>
-                              {cc.name} ({cc.code})
-                            </option>
-                          ))}
-                        </CostCenterSelect>
-                      </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="text"
-                          value={row.description}
+                        <textarea
+                          rows={1}
+                          aria-label={`بابت ردیف پرداخت ${idx+1}`} value={row.description}
                           onChange={(e) => {
                             const val = e.target.value;
                             setBatchRows((prev) =>
@@ -844,7 +832,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                             );
                           }}
                           placeholder="بابت ماموریت، پاداش، فاکتور..."
-                          className="w-full px-2 py-1.5 text-xs bg-white border border-slate-300 rounded"
+                          className="w-full px-2 py-1.5 text-xs leading-4 resize-y bg-white border border-slate-300 rounded"
                         />
                       </td>
                       <td className="px-1.5 py-2 text-center">
@@ -948,13 +936,13 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label htmlFor="single-payment-payee" className="block text-xs font-semibold text-slate-700 mb-1">نام گیرنده (صاحب حساب) <span className="text-rose-600">*</span>:</label>
+                <label htmlFor="single-payment-payee" className="block text-xs font-semibold text-slate-700 mb-1">نام گیرندهٔ وجه / صاحب حساب مقصد <span className="text-rose-600">*</span>:</label>
                 <input
                   id="single-payment-payee"
                   type="text"
                   required
                   value={payeeName}
-                  onChange={(e) => {e.target.setCustomValidity(e.target.value.trim()?'':'نام گیرنده (صاحب حساب) را وارد کنید.');setPayeeName(e.target.value);}}
+                  onChange={(e) => {e.target.setCustomValidity(e.target.value.trim()?'':'نام گیرندهٔ وجه / صاحب حساب مقصد را وارد کنید.');setPayeeName(e.target.value);}}
                   placeholder="مثال: شرکت داده‌پردازی شاهراه"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
                 />
@@ -1120,10 +1108,10 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
-                  ثبت مساعده گروهی پرسنل (درخواست سرپرست برای اعضای واحد)
+                  ثبت مساعده گروهی (برای سایر افراد)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  سرپرست واحد می‌تواند برای چند نفر از پرسنل به صورت یکجا تقاضای مساعده ثبت کند.
+                  برای درخواست مساعدهٔ نیروها، افراد زیرمجموعه یا سایر افراد، نام هر فرد را در ردیف خودش وارد کنید؛ این نام، هویت پرسنل موضوع مساعده است.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1156,9 +1144,9 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 <thead>
                   <tr className="bg-slate-100/80 text-slate-700">
                     <th className="px-1.5 py-2.5 w-[4%] text-center">ردیف</th>
-                    <th className="px-2 py-2.5 w-[15%]">نام پرسنل / متقاضی</th>
+                    <th className="px-2 py-2.5 w-[15%]">نام پرسنل</th>
                     <th className="px-2 py-2.5 w-[13%]">مبلغ مساعده (ریال)</th>
-                    <th className="px-2 py-2.5 w-[16%]">شماره کارت (۱۶ رقمی)</th>
+                    <th className="px-2 py-2.5 w-[16%]">شماره کارت (اختیاری، ۱۶ رقم)</th>
                     <th className="px-2 py-2.5 w-[18%]">شماره شبا (IBAN)</th>
                     <th className="px-2 py-2.5 w-[9%]">ماه مساعده</th>
                     <th className="px-2 py-2.5 w-[16%]">علت درخواست (توضیحات)</th>
@@ -1176,7 +1164,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                         <input
                           type="text"
                           required
-                          value={row.payeeName}
+                          aria-label={`نام پرسنل ردیف مساعده ${idx+1}`} value={row.payeeName}
                           onChange={(e) => {
                             const val = e.target.value;
                             setBatchAdvRows((prev) =>
@@ -1330,8 +1318,14 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
             {!canSubmitCurrent&&<p role="alert" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">نمایش این فرم فعال است، اما مجوز ثبت درخواست برای شما فعال نیست.</p>}
             <fieldset disabled={submitting || readingFiles || !canSubmitCurrent} className="space-y-4 min-w-0">
             <div className="pb-3 border-b border-slate-200">
-              <h3 className="text-sm font-bold text-slate-900">ثبت درخواست مساعده حقوق تکی</h3>
+              <h3 className="text-sm font-bold text-slate-900">ثبت درخواست مساعده حقوق تکی (برای خودم)</h3>
               <p className="text-xs text-slate-500">تقاضای دریافت مساعده ماهانه با بررسی سقف کارکرد</p>
+            </div>
+
+            <div>
+              <label htmlFor="single-advance-applicant" className="block text-xs font-semibold text-slate-700 mb-1">متقاضی و دریافت‌کنندهٔ مساعده (صاحب این پرتال):</label>
+              <input id="single-advance-applicant" type="text" readOnly value={currentUser.name} aria-describedby="single-advance-applicant-help" className="w-full px-3 py-2 text-xs font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg" />
+              <p id="single-advance-applicant-help" className="text-xs text-slate-500 mt-1 leading-relaxed">این درخواست فقط به نام صاحب همین پرتال ثبت می‌شود. برای درخواست به نام دیگران، فرم «مساعده گروهی» را انتخاب کنید.</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1461,7 +1455,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="جستجو بر اساس کد، ذینفع، شرح یا مبلغ..."
+                placeholder="جستجو بر اساس کد، نام پرسنل، گیرنده وجه، بابت یا مبلغ..."
                 className="w-full pr-10 pl-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
               />
             </div>
@@ -1825,7 +1819,7 @@ export const EmployeeRequestsView: React.FC<EmployeeRequestsViewProps> = ({
                       شماره کارت ۱۶ رقمی:
                     </label>
                     <CardInput
-                      required={resubmitTarget.itemType==='PAYMENT'||batchPayments.find(b=>b.id===resubmitTarget.requestId)?.batchType!=='ADVANCE'}
+                      required={resubmitTarget.itemType==='PAYMENT'?!paymentRequests.find(p=>p.id===resubmitTarget.requestId)?.personnelBalanceRef:batchPayments.find(b=>b.id===resubmitTarget.requestId)?.batchType!=='ADVANCE'}
                       type="text"
                       dir="ltr"
                       

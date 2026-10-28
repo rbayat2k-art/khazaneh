@@ -1,9 +1,26 @@
+import {requesterTrackingCount} from './utils/requester-tracking-count';
+import {PERSONNEL_BALANCE_CHANGED} from './utils/personnel-balance-client';
+import type {PersonnelBalanceTab} from './types/personnel-balance';
+const PersonnelBalanceWorkspace=React.lazy(()=>import('./components/PersonnelBalanceWorkspace').then(m=>({default:m.PersonnelBalanceWorkspace})));
+import {ACCOUNT_INQUIRY_CHANGED}from'./utils/account-inquiry-events';
+import {accountInquiryNoticeTab}from'./utils/account-inquiry-notice-tab';
+import {AccountInquiryProvider}from'./components/AccountInquiryContext';
+import type {AccountInquiryTab}from'./types/account-inquiry';
+const AccountInquiryWorkspace=React.lazy(()=>import('./components/AccountInquiryWorkspace').then(m=>({default:m.AccountInquiryWorkspace})));
+import {chainNoticeCurrent} from './utils/chain-notice-current';
+import {currentSupervisorId} from './utils/request-approval-chain';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {flushSync} from 'react-dom';
+import {downloadAuthorizedWorkbook,type TreasuryExportSelection} from './utils/export-download';
 import {RequestDetailsProvider} from './components/RequestDetails';
 import {notificationAddressed} from './utils/notification-audience';
+import {AdminEntryBanner} from './components/AdminUserEntry';
+import {ADMIN_ENTRY_TOKEN,activeAuthStorage,activeAuthToken,clearAdminEntry,endAdminEntry} from './utils/admin-session';
 const FinancialReports=React.lazy(()=>import('./components/FinancialReports').then(m=>({default:m.FinancialReports})));
 import type {InquiryRequest} from './components/BankInquiryPanel';
 import {isMyRevision,type TreasuryReturn} from './utils/treasury-correction';
+import type {TreasuryRejectionCommand} from './utils/treasury-rejection';
+import type {TreasuryRejectionResult} from './components/TreasuryRejectionDialog';
 import {
   Keyboard,
   LogOut,
@@ -75,23 +92,24 @@ const BankInquiryPanel=React.lazy(()=>import('./components/BankInquiryPanel').th
 const AUTH_STORAGE_KEY = 'treasury_auth_user_session';
 const TOKEN_STORAGE_KEY = 'treasury_auth_session_token';
 
-export default function App() {
+export default function App(){const entered=!!sessionStorage.getItem(ADMIN_ENTRY_TOKEN);return <><AdminEntryBanner/><div className={entered?'pb-28 sm:pb-20':''}><PortalApp/></div></>;}
+function PortalApp() {
   const [dbState, setDbState] = useState<TreasuryDatabaseState | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [sessionToken, setSessionToken] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(TOKEN_STORAGE_KEY);
+      return activeAuthToken();
     } catch {
       return null;
     }
   });
   const [currentUser, setCurrentUser] = useState<UserType | null>(() => {
     try {
-      const tok = localStorage.getItem(TOKEN_STORAGE_KEY);
-      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+      const tok = activeAuthToken();
+      const stored = activeAuthStorage().getItem(AUTH_STORAGE_KEY);
       if (!tok || !stored) {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
-        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        activeAuthStorage().removeItem(AUTH_STORAGE_KEY);
+        if(!sessionStorage.getItem(ADMIN_ENTRY_TOKEN))localStorage.removeItem(TOKEN_STORAGE_KEY);
         return null;
       }
       return JSON.parse(stored);
@@ -109,6 +127,7 @@ export default function App() {
   }, [sessionToken]);
 
   const currentUserRef = useRef<UserType | null>(currentUser);
+  const exportScopeRef=useRef('');exportScopeRef.current=JSON.stringify([dbState?.roleConfigs,dbState?.companies]);
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
@@ -121,11 +140,17 @@ export default function App() {
   const [forcedPassLoading, setForcedPassLoading] = useState(false);
 
   const [activeSection, setActiveSection] = useState<MainSection>('REQUESTER');
+  const [personnelBalanceTab,setPersonnelBalanceTab]=useState<PersonnelBalanceTab>('MINE');
+  const [personnelBalanceFocus,setPersonnelBalanceFocus]=useState<string|null>(null);
+  const [accountInquiryTab,setAccountInquiryTab]=useState<AccountInquiryTab>('MINE');
+  const [accountInquiryFocus,setAccountInquiryFocus]=useState<{inquiryId:string;rowId:string;nonce:string}|null>(null);
   const receiptAuthority=JSON.stringify([currentUser?.id,currentUser?.role,currentUser?.additionalRoles,currentUser?.company,currentUser?.department,currentUser?.effectivePermissions,currentUser?.effectiveAccessScope]);
   const [receiptSelection,setReceiptSelection]=useState<{id:string;authority:string}|null>(null);
+  const receiptSelectionRef=useRef(receiptSelection);receiptSelectionRef.current=receiptSelection;
   const receiptPermissions=currentUser?normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role):null;
   const activeReceiptModal=currentUser&&!currentUser.mustChangePassword&&(receiptPermissions?.canViewAttachments||receiptPermissions?.canViewReceiptArchive)&&receiptSelection?.authority===receiptAuthority?dbState?.receiptArchives.find(r=>r.id===receiptSelection.id)||null:null;
-  const setActiveReceiptModal=useCallback((receipt:ReceiptArchive|null)=>setReceiptSelection(receipt?{id:receipt.id,authority:receiptAuthority}:null),[receiptAuthority]);
+  const activeReceiptRef=useRef(activeReceiptModal);activeReceiptRef.current=activeReceiptModal;
+  const setActiveReceiptModal=useCallback((receipt:ReceiptArchive|null)=>{const selection=receipt?{id:receipt.id,authority:receiptAuthority}:null;receiptSelectionRef.current=selection;setReceiptSelection(selection);},[receiptAuthority]);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -137,16 +162,18 @@ export default function App() {
   const navigationPerms=useMemo(()=>currentUser?normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role):null,[currentUser?.effectivePermissions,currentUser?.role]);
   useEffect(()=>{
     if(!navigationPerms||activeSection==='SETTINGS')return; // Own password/session recovery remains reachable.
-    const tab=activeSection==='REQUESTER'?requesterFormTab:activeSection==='ADMIN_PANEL'?adminSubTab:activeSection==='TREASURY'?treasurySubTab:approvalCategoryTab;
+    const tab=activeSection==='REQUESTER'?requesterFormTab:activeSection==='ADMIN_PANEL'?adminSubTab:activeSection==='TREASURY'?treasurySubTab:activeSection==='PERSONNEL_BALANCES'?personnelBalanceTab:activeSection==='ACCOUNT_INQUIRIES'?accountInquiryTab:approvalCategoryTab;
     if(menuVisible(navigationPerms,selectedMenuId(activeSection,tab,requesterStatusFilter)))return;
-    const first=visibleMenus(navigationPerms,activeSection)[0]||(['REQUESTER','APPROVER','ACCOUNTING','TREASURY','ADMIN_PANEL','REPORTS','SETTINGS'] as const).flatMap(s=>visibleMenus(navigationPerms,s))[0];
+    const first=visibleMenus(navigationPerms,activeSection)[0]||(['REQUESTER','APPROVER','ACCOUNTING','TREASURY','ACCOUNT_INQUIRIES','PERSONNEL_BALANCES','ADMIN_PANEL','REPORTS','SETTINGS'] as const).flatMap(s=>visibleMenus(navigationPerms,s))[0];
     if(!first){setActiveSection('SETTINGS');return;}
     setActiveSection(first.section);
     if(first.section==='REQUESTER'){setRequesterFormTab(first.tab as RequesterSubView);setRequesterStatusFilter(first.filter||'ALL');}
     else if(first.section==='ADMIN_PANEL')setAdminSubTab(first.tab as AdminSubTab);
     else if(first.section==='TREASURY')setTreasurySubTab(first.tab as TreasurySubTab);
+    else if(first.section==='PERSONNEL_BALANCES')setPersonnelBalanceTab(first.tab as PersonnelBalanceTab);
+    else if(first.section==='ACCOUNT_INQUIRIES')setAccountInquiryTab(first.tab as AccountInquiryTab);
     else if(first.section==='APPROVER'||first.section==='ACCOUNTING')setApprovalCategoryTab(first.tab as ApprovalCategoryTab);
-  },[navigationPerms,activeSection,requesterFormTab,requesterStatusFilter,adminSubTab,treasurySubTab,approvalCategoryTab]);
+  },[navigationPerms,activeSection,requesterFormTab,requesterStatusFilter,adminSubTab,treasurySubTab,approvalCategoryTab,accountInquiryTab,personnelBalanceTab]);
 
   // Browser Push Notification & Notification Center states
   const [showNotifDropdown, setShowNotifDropdown] = useState<boolean>(false);
@@ -167,6 +194,7 @@ export default function App() {
   }, []);
 
   const clearClientSession = useCallback((reasonMsg?: string) => {
+    if(sessionStorage.getItem(ADMIN_ENTRY_TOKEN)){clearAdminEntry();window.location.reload();return;}
     sessionTokenRef.current = null;
     currentUserRef.current = null;
     // Never carry a privileged in-memory projection into the next login.
@@ -236,7 +264,7 @@ export default function App() {
           if (serializedNew !== serializedCurrent) {
             currentUserRef.current = meData.user;
             setCurrentUser(meData.user);
-            localStorage.setItem(AUTH_STORAGE_KEY, serializedNew);
+            activeAuthStorage().setItem(AUTH_STORAGE_KEY, serializedNew);
           }
           return;
         }
@@ -307,6 +335,12 @@ export default function App() {
     }
   }, [currentUser?.id, currentUser?.role]);
 
+  useEffect(()=>{const changed=()=>void fetchState();window.addEventListener(ACCOUNT_INQUIRY_CHANGED,changed);window.addEventListener(PERSONNEL_BALANCE_CHANGED,changed);return()=>{window.removeEventListener(ACCOUNT_INQUIRY_CHANGED,changed);window.removeEventListener(PERSONNEL_BALANCE_CHANGED,changed);};},[fetchState]);
+
+  const openAccountInquiryNotice=(notif:AppNotification)=>{if(!notif.accountInquiryRef||notif.recipientUserId!==currentUserRef.current?.id)return;const tab=accountInquiryNoticeTab(notif.accountInquiryRef);setAccountInquiryTab(tab);setAccountInquiryFocus({...notif.accountInquiryRef,nonce:notif.id+':'+Date.now()});};
+
+  useEffect(()=>setAccountInquiryFocus(null),[currentUser?.id,sessionToken]);
+
   const handleLoginSuccess = (payload: {
     user: UserType;
     token: string;
@@ -328,6 +362,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    if(sessionStorage.getItem(ADMIN_ENTRY_TOKEN)){try{await endAdminEntry();}catch{showToast('بازگشت به حساب مدیر انجام نشد؛ دوباره تلاش کنید.');}return;}
     const tokenToRevoke = sessionTokenRef.current || sessionToken;
     clearClientSession('از حساب کاربری خود خارج شدید.');
     if (window.history && window.history.replaceState) {
@@ -421,6 +456,7 @@ export default function App() {
 
   // Dispatch Windows / Browser Push Notifications via Web Notification API for new events
   useEffect(() => {
+    if(sessionStorage.getItem(ADMIN_ENTRY_TOKEN))return;
     if (!currentUser || !dbState?.notifications) return;
 
     // Seed initial notifications on first session so historical items don't spam OS tray
@@ -430,6 +466,7 @@ export default function App() {
     );
 
     for (const notif of visibleNotifications) {
+      if(!chainNoticeCurrent(notif,dbState))continue;
       if (!hasNotificationBeenPushedToOS(currentUser.id, notif.id)) {
         markNotificationPushedToOS(currentUser.id, notif.id);
 
@@ -441,7 +478,7 @@ export default function App() {
             tag: notif.id,
             eventType: notif.eventType,
             onClick: () => {
-              setActiveSection(notif.targetSection);
+              setActiveSection(notif.targetSection);if(notif.accountInquiryRef)openAccountInquiryNotice(notif);if(notif.personnelBalanceRef){setPersonnelBalanceTab(notif.personnelBalanceRef.purpose);setPersonnelBalanceFocus(notif.personnelBalanceRef.requestId);}
             },
           });
         }
@@ -454,6 +491,7 @@ export default function App() {
     if (!dbState || !currentUser) {
       return {
         needsRevision: 0,
+        trackingTotal:0,
         pendingApprover: 0,
         pendingAccounting: 0,
         pendingTreasury: 0,
@@ -478,17 +516,17 @@ export default function App() {
     const isMySupervised = (supId?: string | null) =>
       currentUser.role === 'ADMIN' || !supId || supId === currentUser.id;
     dbState.batchPayments.forEach((b) => {
-      if ((currentUser.role === 'ADMIN' || b.requesterId !== currentUser.id) && isMySupervised(b.supervisorId)) {
-        pendingApprover += b.items.filter((it) => (it.status || b.status) === 'Pending_Approver').length;
+      if (currentUser.role === 'ADMIN' || b.requesterId !== currentUser.id) {
+        pendingApprover += b.items.filter((it) => (it.status || b.status) === 'Pending_Approver'&&isMySupervised(currentSupervisorId(b,it))).length;
       }
     });
     dbState.paymentRequests.forEach((p) => {
-      if ((currentUser.role === 'ADMIN' || p.requesterId !== currentUser.id) && isMySupervised(p.supervisorId) && p.status === 'Pending_Approver') {
+      if ((currentUser.role === 'ADMIN' || p.requesterId !== currentUser.id) && isMySupervised(currentSupervisorId(p)) && p.status === 'Pending_Approver') {
         pendingApprover++;
       }
     });
     dbState.advanceRequests.forEach((a) => {
-      if ((currentUser.role === 'ADMIN' || a.requesterId !== currentUser.id) && isMySupervised(a.supervisorId) && a.status === 'Pending_Approver') {
+      if ((currentUser.role === 'ADMIN' || a.requesterId !== currentUser.id) && isMySupervised(currentSupervisorId(a)) && a.status === 'Pending_Approver') {
         pendingApprover++;
       }
     });
@@ -547,6 +585,7 @@ export default function App() {
 
     return {
       needsRevision,
+      trackingTotal:requesterTrackingCount(dbState,currentUser,navigationPerms||{}),
       pendingApprover,
       pendingAccounting,
       pendingTreasury,
@@ -566,6 +605,8 @@ export default function App() {
 
   const sectionInfo = useMemo(() => {
     switch (activeSection) {
+      case 'PERSONNEL_BALANCES':return {title:'پرداخت پرسنلی',subtitle:'مبلغ اعلامی اختیاری؛ بررسی و تأیید حسابداری، سپس خزانه',badge:'پرداخت پرسنلی'};
+      case 'ACCOUNT_INQUIRIES':return {title:'مانده حساب و صورت‌حساب',subtitle:'استعلام، پاسخ حسابداری و بررسی مجوز نمایش',badge:'استعلام حساب'};
       case 'ADMIN_PANEL': {
         if (adminSubTab === 'MASTER_COMPANIES') {
           return {
@@ -687,8 +728,14 @@ export default function App() {
   }
 
   // Handlers for User, Role, Password, and Preferences Management
+  const handleLoadOpenWork = async (targetUserId:string) => {
+    try{const res=await fetch('/api/admin/open-work',{method:'POST',headers:authHeaders,body:JSON.stringify({targetUserId})});const data=await res.json();return{...data,ok:res.ok};}catch{return{ok:false,error:'ارتباط با سرور برقرار نشد.'};}
+  };
+  const handleResolveOpenWork = async (body:import('./utils/open-work-contract').ResolveWork) => {
+    try{const res=await fetch('/api/admin/resolve-open-work',{method:'POST',headers:authHeaders,body:JSON.stringify(body)});const data=await res.json();if(!res.ok)return{ok:false,error:data.error};if(data.state)setDbState(data.state);showToast('تصمیم موردی مدیر با حفظ سابقه ثبت شد.');return{ok:true};}catch{return{ok:false,error:'نتیجه ثبت نامشخص است؛ فهرست را تازه‌سازی و سپس بررسی کنید.'};}
+  };
   const handleSaveUser = async (
-    payload: Partial<UserType> & { replacementSupervisorId?: string }
+    payload: Partial<UserType> & { replacementSupervisorId?: string;expectedRequestApprovers?:UserType['requestApprovers'] }
   ): Promise<{
     ok: boolean;
     error?: string;
@@ -715,7 +762,7 @@ export default function App() {
         const me = data.state.users.find((u: UserType) => u.id === currentUser.id);
         if (me) {
           setCurrentUser(me);
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
+          activeAuthStorage().setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
         }
         showToast('اطلاعات کاربر و دسترسی‌ها با موفقیت در سرور ذخیره شد.');
       }
@@ -808,7 +855,7 @@ export default function App() {
         const me = data.state.users.find((u: UserType) => u.id === currentUser.id);
         if (me) {
           setCurrentUser(me);
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
+          activeAuthStorage().setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
         }
         showToast('تنظیمات دسترسی و سقف مالی نقش با موفقیت ذخیره شد.');
       }
@@ -859,7 +906,7 @@ export default function App() {
         const me = data.state.users.find((u: UserType) => u.id === currentUser.id);
         if (me) {
           setCurrentUser(me);
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
+          activeAuthStorage().setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
         }
         showToast('تنظیمات پیش‌فرض نقش با موفقیت بازگردانی شد.');
       }
@@ -906,7 +953,7 @@ export default function App() {
         const me = data.state.users?.find((u: UserType) => u.id === currentUser.id);
         if (me) {
           setCurrentUser(me);
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
+          activeAuthStorage().setItem(AUTH_STORAGE_KEY, JSON.stringify(me));
         }
       }
       if (successMsg) showToast(successMsg);
@@ -966,7 +1013,7 @@ export default function App() {
       }
       if (data.user) {
         setCurrentUser(data.user);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
+        activeAuthStorage().setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
       }
       if (data.state) {
         setDbState(data.state);
@@ -996,7 +1043,7 @@ export default function App() {
       }
       if (data.user) {
         setCurrentUser(data.user);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
+        activeAuthStorage().setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
       }
       if (data.state) {
         setDbState(data.state);
@@ -1302,6 +1349,26 @@ export default function App() {
     catch{return {ok:false,error:'ارتباط برقرار نشد؛ پیش از تلاش دوباره، وضعیت درخواست را تازه‌سازی و بررسی کنید.'};}
   };
 
+  const exportAuthority=(u:UserType|null)=>JSON.stringify([u?.id,u?.role,u?.additionalRoles,u?.company,u?.department,u?.effectivePermissions,u?.effectiveAccessScope,u?.isActive,u?.mustChangePassword,exportScopeRef.current]);
+  const exportStillAllowed=(authority:string)=>{const u=currentUserRef.current;return !!u&&u.isActive!==false&&!u.mustChangePassword&&normalizeRolePermissionSet(u.effectivePermissions,u.role).canExportReports&&exportAuthority(u)===authority;};
+  const requestTreasuryExport=async(selection:TreasuryExportSelection)=>{
+    const token=sessionTokenRef.current,actor=currentUserRef.current?.id,authority=exportAuthority(currentUserRef.current);
+    if(!token||!actor)throw Error('نشست معتبر نیست.');
+    const response=await fetch('/api/treasury/export',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(selection)}),data=await response.json();
+    if(token!==sessionTokenRef.current||actor!==currentUserRef.current?.id||!exportStillAllowed(authority))throw Error('نشست یا دسترسی تغییر کرده است؛ خروجی صادر نشد.');
+    if(!response.ok)throw Error(data.error||'مجوز یا اطلاعات خروجی تغییر کرده است.');return data;
+  };
+  const handleOperationalExport=async(selection:TreasuryExportSelection,isCurrent:()=>boolean)=>{
+    const authority=exportAuthority(currentUserRef.current),data=await requestTreasuryExport(selection);if(!isCurrent()||!exportStillAllowed(authority))throw Error('صفحه یا دسترسی تغییر کرده است؛ خروجی صادر نشد.');return downloadAuthorizedWorkbook(data);
+  };
+  const handlePrintReceipt=async()=>{
+    if(!currentPerms.canExportReports||!activeReceiptModal)return;
+    const selected=receiptSelectionRef.current,authority=exportAuthority(currentUserRef.current),selectionAuthority=receiptAuthority;
+    try{const data=await requestTreasuryExport({purpose:'PRINT_RECEIPT',receiptId:activeReceiptModal.id});if(receiptSelectionRef.current!==selected||selected?.authority!==selectionAuthority||activeReceiptRef.current?.id!==data.receipt.id||!exportStillAllowed(authority))return;
+      flushSync(()=>setDbState(previous=>previous?{...previous,receiptArchives:previous.receiptArchives.map(r=>r.id===data.receipt.id?data.receipt:r)}:previous));window.print();
+    }catch(error){showToast(error instanceof Error?error.message:'چاپ صادر نشد.');}
+  };
+
   const handleResubmitRequest = async (payload: {
     expectedVersion?:number;
     requesterId: string;
@@ -1340,6 +1407,14 @@ export default function App() {
   const handleTreasuryReturn=async(payload:TreasuryReturn):Promise<{ok:boolean;error?:string}>=>{
     try{const response=await fetch('/api/treasury/return-for-correction',{method:'POST',headers:authHeaders,body:JSON.stringify(payload)}),data=await response.json();if(!response.ok||data.error)return {ok:false,error:data.error||'عودت ثبت نشد.'};if(data.state)setDbState(data.state);showToast('برای اصلاح فنی ارجاع شد؛ پرداخت ردیف تا بازگشت از اصلاح متوقف است.');return {ok:true};}
     catch{return {ok:false,error:'پاسخ ثبت دریافت نشد؛ ابتدا فهرست را تازه‌سازی و وضعیت را بررسی کنید.'};}
+  };
+  const handleTreasuryRejection=async(payload:TreasuryRejectionCommand):Promise<TreasuryRejectionResult>=>{
+    const token=sessionTokenRef.current,actor=currentUserRef.current?.id,generation=++paymentResponseGeneration.current;
+    try{const response=await fetch('/api/treasury/rejection',{method:'POST',headers:authHeaders,body:JSON.stringify(payload)}),data=await response.json();
+      if(token!==sessionTokenRef.current||actor!==currentUserRef.current?.id||generation!==paymentResponseGeneration.current)return {ok:false,status:409,error:'نشست یا اقدام دیگری تغییر کرده است؛ فهرست را تازه‌سازی و نتیجه را بررسی کنید.'};
+      if(!response.ok)return {ok:false,status:response.status,error:data.error||'اقدام خزانه ثبت نشد.'};
+      if(data.state)setDbState(data.state);else await fetchState();showToast(payload.action==='REJECT'?'پرداخت با دلیل در مخزن ردشده‌های خزانه قرار گرفت.':'با دلیل به صف انتظار خزانه بازگردانده شد.');return {ok:true};
+    }catch{return {ok:false,error:'پاسخ ثبت دریافت نشد؛ همان عملیات را پیگیری کنید.'};}
   };
   const handleMoveTreasuryPool = async (payload: {
     items: Array<{ id: string; type: 'ADVANCE' | 'PAYMENT' | 'BATCH' | 'BATCH_ITEM'; batchId?: string }>;
@@ -1553,14 +1628,16 @@ export default function App() {
   };
 
   const handleMarkNotificationRead = async (notificationId?: string) => {
+    const tokenAtStart=sessionTokenRef.current,userAtStart=currentUserRef.current?.id,generation=paymentResponseGeneration.current;if(!tokenAtStart||!userAtStart)return;
     try {
       const res = await fetch('/api/notifications/read', {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({ userId: currentUser.id, notificationId }),
+        body: JSON.stringify({ userId: userAtStart, notificationId }),
       });
       const data = await res.json();
-      if (data.state) {
+      if (sessionTokenRef.current!==tokenAtStart||currentUserRef.current?.id!==userAtStart||paymentResponseGeneration.current!==generation)return;
+      if (res.ok&&data.state) {
         setDbState(data.state);
       }
     } catch {
@@ -1662,6 +1739,7 @@ export default function App() {
   const canAccessTreasury = Boolean(
     currentPerms.canInquireBankDetails || currentPerms.canConfirmBankOwner || currentPerms.canAccessTreasuryQueue ||
       currentPerms.canAccessTreasuryInPayment ||
+      currentPerms.canAccessTreasuryRejected ||
       currentPerms.canAccessTreasuryCompleted ||
       currentPerms.canAccessTreasuryBankAccounts ||
       currentPerms.canAccessTreasuryManualPayment ||
@@ -1670,11 +1748,11 @@ export default function App() {
   );
 
   const isPushActive = browserPermission === 'granted' && desktopNotifEnabled;
-  const activeMenuAllowed=menuVisible(currentPerms,selectedMenuId(activeSection,activeSection==='REQUESTER'?requesterFormTab:activeSection==='ADMIN_PANEL'?adminSubTab:activeSection==='TREASURY'?treasurySubTab:approvalCategoryTab,requesterStatusFilter));
+  const activeMenuAllowed=menuVisible(currentPerms,selectedMenuId(activeSection,activeSection==='REQUESTER'?requesterFormTab:activeSection==='ADMIN_PANEL'?adminSubTab:activeSection==='TREASURY'?treasurySubTab:activeSection==='PERSONNEL_BALANCES'?personnelBalanceTab:activeSection==='ACCOUNT_INQUIRIES'?accountInquiryTab:approvalCategoryTab,requesterStatusFilter));
 
   return (
     <React.Suspense fallback={<div dir="rtl" className="min-h-screen grid place-items-center bg-slate-50 text-slate-700">در حال بازکردن کارتابل...</div>}>
-    <RequestDetailsProvider user={currentUser} state={dbState} onReceipt={setActiveReceiptModal}>
+    <AccountInquiryProvider key={receiptAuthority} user={currentUser} state={dbState}><RequestDetailsProvider user={currentUser} state={dbState} onReceipt={setActiveReceiptModal}>
     <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-900 flex">
       {/* Right Fixed / Sticky Sidebar with Submenus & Cartable & Role Accesses */}
       <SidebarNavigation
@@ -1693,6 +1771,12 @@ export default function App() {
           setActiveSection(mode);
           setApprovalCategoryTab(tab);
         }}
+        personnelBalanceSummary={dbState.personnelBalanceSummary}
+        personnelBalanceTab={personnelBalanceTab}
+        onSelectPersonnelBalanceTab={tab=>{setPersonnelBalanceTab(tab);setPersonnelBalanceFocus(null);}}
+        accountInquirySummary={dbState.accountInquirySummary}
+        activeAccountInquiryTab={accountInquiryTab}
+        onSelectAccountInquiryTab={tab=>{setAccountInquiryFocus(null);setAccountInquiryTab(tab);}}
         activeTreasuryTab={treasurySubTab}
         onSelectTreasuryTab={(tab) => setTreasurySubTab(tab)}
         activeAdminTab={adminSubTab}
@@ -1867,7 +1951,7 @@ export default function App() {
                           <div
                             key={notif.id}
                             onClick={() => {
-                              setActiveSection(notif.targetSection);
+                              setActiveSection(notif.targetSection);if(notif.accountInquiryRef)openAccountInquiryNotice(notif);if(notif.personnelBalanceRef){setPersonnelBalanceTab(notif.personnelBalanceRef.purpose);setPersonnelBalanceFocus(notif.personnelBalanceRef.requestId);}
                               if (!isRead) {
                                 handleMarkNotificationRead(notif.id);
                               }
@@ -1961,6 +2045,8 @@ export default function App() {
                 smsLogs={dbState.smsLogs || []}
                 searchInputRef={searchInputRef}
                 onSaveUser={handleSaveUser}
+                onLoadOpenWork={handleLoadOpenWork}
+                onResolveOpenWork={handleResolveOpenWork}
                 onResetUserPassword={handleResetUserPassword}
                 onToggleUserStatus={handleToggleUserStatus}
                 onSaveRoleConfig={handleSaveRoleConfig}
@@ -1997,6 +2083,8 @@ export default function App() {
             />
           )}
 
+          {activeSection==='PERSONNEL_BALANCES'&&activeMenuAllowed&&<PersonnelBalanceWorkspace key={receiptAuthority} user={currentUser} state={dbState} tab={personnelBalanceTab} focus={personnelBalanceFocus} onFocusHandled={()=>setPersonnelBalanceFocus(null)}/>}
+          {activeSection==='ACCOUNT_INQUIRIES'&&activeMenuAllowed&&<AccountInquiryWorkspace key={receiptAuthority} user={currentUser} state={dbState} tab={accountInquiryTab} focus={accountInquiryFocus} onFocusHandled={()=>setAccountInquiryFocus(null)}/>}
           {/* 2. REQUESTER WORKSPACE */}
           {activeSection === 'REQUESTER' && activeMenuAllowed && (
             <EmployeeRequestsView
@@ -2064,9 +2152,10 @@ export default function App() {
           )}
 
           {/* 5. TREASURY WORKSPACE */}
-          {activeSection==='TREASURY' && activeMenuAllowed&&canAccessTreasury&&treasurySubTab==='BANK_INQUIRY'&&<BankInquiryPanel key={currentUser.id+'-inquiry'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} onOpenSettings={currentPerms.canManageBankInquiry?()=>{setAdminSubTab('BANK_INQUIRY');setActiveSection('ADMIN_PANEL');}:undefined}/>}
+          {activeSection==='TREASURY' && activeMenuAllowed&&canAccessTreasury&&treasurySubTab==='BANK_INQUIRY'&&<BankInquiryPanel onExportWorkbook={handleOperationalExport} key={currentUser.id+'-inquiry'} user={currentUser} state={dbState} onRequest={handleBankInquiry} onRefresh={fetchState} onOpenSettings={currentPerms.canManageBankInquiry?()=>{setAdminSubTab('BANK_INQUIRY');setActiveSection('ADMIN_PANEL');}:undefined}/>}
           {activeSection === 'TREASURY' && activeMenuAllowed && canAccessTreasury && treasurySubTab!=='BANK_INQUIRY' && (
             <TreasuryWorkspaceView
+              onExportWorkbook={handleOperationalExport}
               currentUser={currentUser}
               advanceRequests={dbState.advanceRequests}
               paymentRequests={dbState.paymentRequests}
@@ -2079,6 +2168,7 @@ export default function App() {
               initialSubTab={treasurySubTab}
               onMoveTreasuryPool={handleMoveTreasuryPool}
               onReturnForCorrection={handleTreasuryReturn}
+              onTreasuryRejection={handleTreasuryRejection}
               onOpenBankInquiry={()=>setTreasurySubTab('BANK_INQUIRY')}
               onExecutePayment={handleExecutePayment}
               onRefreshState={fetchState}
@@ -2151,7 +2241,8 @@ export default function App() {
             <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => window.print()}
+                disabled={!currentPerms.canExportReports}
+                onClick={()=>void handlePrintReceipt()}
                 className="px-3.5 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5 inline ml-1" />
@@ -2230,7 +2321,7 @@ export default function App() {
         </div>
       )}
     </div>
-    </RequestDetailsProvider>
+    </RequestDetailsProvider></AccountInquiryProvider>
     </React.Suspense>
   );
 }

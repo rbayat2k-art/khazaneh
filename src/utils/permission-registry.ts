@@ -1,3 +1,4 @@
+import {ACCOUNT_INQUIRY_TABS}from'../types/account-inquiry';
 import type {RolePermissionSet,User} from '../types/treasury';
 import {getDefaultPermissionsForRole} from '../types/treasury';
 
@@ -15,6 +16,7 @@ export type PermissionControl={key:PermissionKey;label:string;kind:'ACCESS'|'ACT
 const c=(key:PermissionKey,label:string,kind:PermissionControl['kind']='ACCESS',description='در محدودهٔ شرکت، نقش و سقف مجاز کاربر.'):PermissionControl=>({key,label,kind,description});
 export const PERMISSION_GROUPS:{id:keyof typeof MENU_TITLES;title:string;items:PermissionControl[]}[]=[
  {id:'forms',title:MENU_TITLES.forms,items:[
+  c('canRequestPersonnelBalance','ثبت پرداخت پرسنلی با مبلغ اعلامی اختیاری و تأیید حسابداری','ACTION'),c('canShowInquiryCreate','فرم ثبت استعلام شخصی یا گروهی','DISPLAY'),c('canRequestOwnAccountInquiry','ثبت استعلام حساب خود','ACTION'),c('canRequestOthersAccountInquiry','ثبت استعلام پرسنل و تأمین‌کنندگان مجاز','ACTION'),c('canConvertAccountInquiry','ساخت درخواست مالی از پاسخ مجاز استعلام','ACTION','همراه با مجوز عادی ثبت نوع مالی؛ هر ردیف یک هدف مالی.'),
   c('canAccessRequesterSection','نمایش مستقل منوی ثبت درخواست‌ها','DISPLAY','فرم‌های فعال نیز این منو را نمایش می‌دهند؛ برای بستن کامل، نمایش چهار فرم را هم خاموش کنید.'),
   c('canCreateAdvanceSingle','زیرمنوی مساعده حقوق تکی — نمایش فرم','DISPLAY'),c('canSubmitSingleAdvance','ثبت مساعده حقوق تکی','ACTION'),
   c('canCreateAdvanceBatch','زیرمنوی مساعده گروهی پرسنل — نمایش فرم','DISPLAY'),c('canSubmitBatchAdvance','ثبت مساعده گروهی پرسنل','ACTION'),
@@ -23,19 +25,23 @@ export const PERMISSION_GROUPS:{id:keyof typeof MENU_TITLES;title:string;items:P
   c('canCreateRequest','مجوز کلی ثبت و ویرایش درخواست‌های دست‌نخورده','ACTION','پیش‌نیاز ثبت هر چهار نوع؛ ویرایش/حذف فقط برای مالک و قبل از رسیدگی، طبق قواعد موجود.'),
  ]},
  {id:'tracking',title:MENU_TITLES.tracking,items:[
+  c('canViewPersonnelBalances','مشاهده و پیگیری پرداخت پرسنلی مجاز','ACCESS','پیش‌نیاز مشاهده فرم ثبت و تعیین مبلغ همین بخش؛ شرکت و مالکیت در سرور کنترل می‌شود.'),c('canShowInquiryMine','پیگیری استعلام‌های من','DISPLAY'),c('canShowInquiryHistory','سوابق استعلام‌ها و مکاتبات مجاز','DISPLAY'),
   c('canShowTrackingAll','همه درخواست‌ها و سوابق من','DISPLAY'),c('canShowTrackingAdvanceSingle','پیگیری مساعده تکی','DISPLAY'),c('canShowTrackingAdvanceBatch','پیگیری مساعده گروهی','DISPLAY'),c('canShowTrackingPaymentSingle','پیگیری درخواست پرداخت تکی','DISPLAY'),c('canShowTrackingPaymentBatch','پیگیری درخواست پرداخت گروهی','DISPLAY'),c('canShowTrackingRevision','نیازمند اصلاح و بازنگری','DISPLAY'),
   c('canResubmitRevision','اصلاح و ارسال مجدد درخواست برگشتی','ACTION','فقط مالک یا گیرندهٔ اصلاح فنی مجاز و در وضعیت/نسخهٔ معتبر.'),c('canViewRequests','مشاهده درخواست‌ها در کارتابل‌های مجاز','SHARED','پیش‌نیاز ردیف‌ها و جزئیات در همه کارتابل‌ها؛ فقط شرکت‌ها و رکوردهای مجاز.'),
  ]},
  {id:'approver',title:MENU_TITLES.approver,items:[
+  c('canShowInquiryApproval','تأیید و ارجاع استعلام به حسابداری — نمایش','DISPLAY'),c('canShowInquiryRelease','بررسی پاسخ و اجازه نمایش — نمایش','DISPLAY'),c('canApproveAccountInquiry','تأیید و ارجاع استعلام مستقل','ACTION'),c('canReleaseAccountInquiry','اجازه نمایش نسخه پاسخ به متقاضی','ACTION'),c('canRequestLinkedAccountInquiry','استعلام خصوصی از حسابداری هنگام بررسی مالی','ACTION'),
   c('canAccessApproverCartable','نمایش منوی کارتابل تأیید سرپرست واحد','ACCESS','دسترسی اصلی مرحلهٔ سرپرست؛ مشاهده ردیف و اقدام، مجوز و سقف مستقل می‌خواهند.'),
   c('canShowApproverPending','در انتظار تأیید من','DISPLAY'),c('canShowApproverApproved','تأییدشده توسط من','DISPLAY'),c('canShowApproverReturned','برگشت‌داده‌شده برای اصلاح','DISPLAY'),c('canShowApproverAll','همه سوابق من','DISPLAY'),c('canShowApproverRejected','ردشده توسط من','DISPLAY'),
   c('canApprove','مجوز تأیید درخواست‌ها (تکی و گروهی)','SHARED','مشترک با حسابداری؛ فقط مرحله/ارجاع جاری و سقف معتبر.'),c('canEditAmount','مجوز ویرایش و تعدیل مبلغ مصوب','SHARED','مشترک با حسابداری؛ دلیل اجباری. اصلاح مرکز هزینه طبق قرارداد همان مرحله.'),c('canReturnForRevision','مجوز برگشت درخواست برای اصلاح یا رد','SHARED','مشترک با حسابداری؛ برگشت، رد و بستن ردشده با علت و مالکیت مرحلهٔ خود.'),
  ]},
  {id:'accounting',title:MENU_TITLES.accounting,items:[
+  c('canReviewPersonnelBalance','بررسی و تأیید پرداخت پرسنلی و ارسال به خزانه','ACTION','نیازمند مشاهده همین بخش، کارتابل حسابداری، تأیید و سقف جاری؛ خودتأییدی ممنوع.'),c('canShowInquiryAccounting','پاسخ‌گویی مانده و صورت‌حساب — نمایش','DISPLAY'),c('canRespondAccountInquiry','پاسخ حسابداری به استعلام دیگران','ACTION'),
   c('canAccessAccountingCartable','زیرمنوی کارتابل بررسی مالی حسابداری','ACCESS'),c('canShowAccountingPending','در انتظار تأیید من','DISPLAY'),c('canShowAccountingApproved','تأییدشده توسط من','DISPLAY'),c('canShowAccountingReturned','برگشت‌داده‌شده برای اصلاح','DISPLAY'),c('canShowAccountingAll','همه سوابق من','DISPLAY'),c('canShowAccountingRejected','ردشده توسط من','DISPLAY'),
  ]},
  {id:'treasury',title:MENU_TITLES.treasury,items:[
-  c('canAccessTreasuryQueue','صف انتظار پرداخت'),c('canAccessTreasuryInPayment','مخزن در حال پرداخت'),c('canAccessTreasuryCompleted','پرداختی‌های انجام‌شده'),
+  c('canAccessTreasuryQueue','صف انتظار پرداخت'),c('canAccessTreasuryInPayment','مخزن در حال پرداخت'),c('canAccessTreasuryRejected','پرداخت‌های ردشده خزانه'),c('canAccessTreasuryCompleted','پرداختی‌های انجام‌شده'),
+  c('canRejectTreasuryPayment','رد پرداخت خزانه با دلیل','ACTION','فقط ردیف کاملاً پرداخت‌نشده؛ مبلغ و تأییدهای قبلی محفوظ می‌مانند.'),c('canRestoreTreasuryPayment','بازگردانی رد پرداخت به صف انتظار با دلیل','ACTION','فقط رد خزانه؛ رد سرپرست یا حسابداری از این مسیر باز نمی‌شود.'),
   c('canShowTreasuryInquiry','تکمیل و استعلام شبا — نمایش زیرمنو','DISPLAY'),c('canInquireBankDetails','استعلام شبا، تکمیل کارت مفقود و تلاش مجدد','ACTION'),c('canConfirmBankOwner','تأیید و اصلاح نام بانکی با دلیل','ACTION'),
   c('canAccessTreasuryBankAccounts','بانک‌ها و شماره‌حساب‌ها — دسترسی به بخش'),c('canManageBankAccounts','تعریف، ویرایش و ورود گروهی حساب‌های بانکی','ACTION'),
   c('canAccessTreasuryManualPayment','ثبت پرداخت انجام‌شده — دسترسی به بخش'),c('canShowExternalOrder','ثبت دستور پرداخت خارج سامانه — نمایش زیرمنو','DISPLAY'),c('canCreateManualPayment','ثبت پرداخت انجام‌شده و دستور خارج سامانه','ACTION','پرداخت انجام‌شده فیش واقعی می‌خواهد؛ دستور ناپرداخته با مجوز ثبت، ابتدا حسابداری می‌رود.'),
@@ -45,7 +51,7 @@ export const PERMISSION_GROUPS:{id:keyof typeof MENU_TITLES;title:string;items:P
  ]},
  {id:'reports',title:MENU_TITLES.reports,items:[c('canAccessTreasuryReports','گزارش جامع درخواست‌ها و پرداخت‌ها'),c('canExportReports','گزارش‌گیری و خروجی اکسل (XLSX) و چاپ','ACTION','خروجی فقط دادهٔ مجاز؛ دیدن منوی گزارش جای مجوز خروجی را نمی‌گیرد.')]},
  {id:'master',title:MENU_TITLES.master,items:[c('canManageCompanies','تعریف شرکت‌ها و سازمان‌ها'),c('canManageDepartments','تعریف واحدهای سازمانی'),c('canManageCostCenters','تعریف مراکز هزینه'),c('canManageBankInquiry','تنظیمات استعلام کارت و شبا','ACTION','اتصال‌ها، کلیدها، شرکت‌ها، سقف مصرف و اعتبار؛ مستقل از ابزار استعلام خزانه.'),c('canManageSmsGateway','سامانه پیامک و اطلاع‌رسانی','ACTION')]},
- {id:'users',title:MENU_TITLES.users,items:[c('canManageUsers','فهرست و مدیریت کاربران','ACTION'),c('canManageRoles','مدیریت نقش‌ها و حدود اختیار','ACTION'),c('canManagePasswordRecovery','درخواست‌های بازیابی رمز عبور','ACTION'),c('canViewSecurityAudit','تاریخچه امنیتی و تغییرات دسترسی')]},
+ {id:'users',title:MENU_TITLES.users,items:[c('canManagePersonnelBalances','لغو موردی درخواست اولیه پرداخت پرسنلی با دلیل؛ فقط مدیر اصلی','ACTION'),c('canManageAccountInquiries','تعیین تکلیف موردی و حالت امن استعلام؛ فقط مدیر اصلی','ACTION'),c('canManageUsers','فهرست و مدیریت کاربران','ACTION'),c('canManageRoles','مدیریت نقش‌ها و حدود اختیار','ACTION'),c('canManagePasswordRecovery','درخواست‌های بازیابی رمز عبور','ACTION'),c('canViewSecurityAudit','تاریخچه امنیتی و تغییرات دسترسی')]},
  {id:'settings',title:MENU_TITLES.settings,items:[c('canAccessSettings','دسترسی به منوی تنظیمات و حساب کاربری','DISPLAY','این گزینه نمایش منو را کنترل می‌کند؛ تغییر رمز و مدیریت نشست خود شخص قفل نمی‌شود.'),c('canShowKeyboardHelp','نمایش راهنمای کلیدهای میانبر','DISPLAY'),c('canViewAttachments','مشاهده و دانلود مدارک و پیوست‌ها','SHARED','مدارک، فاکتور و فیش فقط در رکوردهای مجاز همهٔ بخش‌ها.')]},
 ];
 export const PERMISSION_CONTROLS=PERMISSION_GROUPS.flatMap(g=>g.items);
@@ -70,9 +76,14 @@ export function permissionPatchError(p:unknown,existing?:Partial<RolePermissionS
  // Retain an opaque, already stored boolean from an old client, never add/change it.
  if(Object.entries(p).some(([k,v])=>typeof v!=='boolean'||!KNOWN_PERMISSION_KEYS.has(k)&&(!existing||!Object.hasOwn(existing,k)||(existing as Record<string,unknown>)[k]!==v)))return 'نام مجوز یا مقدار آن معتبر نیست؛ هر مجوز باید روشن یا خاموش باشد.';
 }
-export type PortalSection='REQUESTER'|'APPROVER'|'ACCOUNTING'|'TREASURY'|'REPORTS'|'ADMIN_PANEL'|'SETTINGS';
+export type PortalSection='PERSONNEL_BALANCES'|'ACCOUNT_INQUIRIES'|'REQUESTER'|'APPROVER'|'ACCOUNTING'|'TREASURY'|'REPORTS'|'ADMIN_PANEL'|'SETTINGS';
 export type MenuEntry={id:string;section:PortalSection;tab:string;filter?:string;permission:PermissionKey;requires?:PermissionKey[]};
 export const MENU_ENTRIES:MenuEntry[]=[
+ {id:'PERSONNEL_BALANCES_CREATE',section:'PERSONNEL_BALANCES',tab:'CREATE',permission:'canViewPersonnelBalances',requires:['canRequestPersonnelBalance']},
+ {id:'PERSONNEL_BALANCES_MINE',section:'PERSONNEL_BALANCES',tab:'MINE',permission:'canViewPersonnelBalances'},
+ {id:'PERSONNEL_BALANCES_ACCOUNTING',section:'PERSONNEL_BALANCES',tab:'ACCOUNTING',permission:'canViewPersonnelBalances',requires:['canReviewPersonnelBalance','canAccessAccountingCartable','canApprove']},
+ ...ACCOUNT_INQUIRY_TABS.map(t=>({id:'ACCOUNT_INQUIRIES_'+t.key,section:'ACCOUNT_INQUIRIES' as const,tab:t.key,permission:t.permission,requires:(t.key==='APPROVAL'?['canApproveAccountInquiry']:t.key==='ACCOUNTING'?['canRespondAccountInquiry']:t.key==='RELEASE'?['canReleaseAccountInquiry']:[]) as PermissionKey[]})),
+ {id:'TREASURY_REJECTED',section:'TREASURY',tab:'REJECTED',permission:'canAccessTreasuryRejected'},
  ...[['ADVANCE_SINGLE','canCreateAdvanceSingle'],['ADVANCE_BATCH','canCreateAdvanceBatch'],['PAYMENT_SINGLE','canCreatePaymentSingle'],['PAYMENT_BATCH','canCreatePaymentBatch']].map(([tab,permission])=>({id:'FORM_'+tab,section:'REQUESTER' as const,tab,permission:permission as PermissionKey})),
  ...[['ALL','canShowTrackingAll'],['ADVANCE_SINGLE','canShowTrackingAdvanceSingle'],['ADVANCE_BATCH','canShowTrackingAdvanceBatch'],['PAYMENT_SINGLE','canShowTrackingPaymentSingle'],['PAYMENT_BATCH','canShowTrackingPaymentBatch'],['NEEDS_REVISION','canShowTrackingRevision']].map(([filter,permission])=>({id:'TRACK_'+filter,section:'REQUESTER' as const,tab:'CARTABLE',filter,permission:permission as PermissionKey})),
  ...(['APPROVER','ACCOUNTING'] as const).flatMap(section=>[['PENDING','Pending'],['APPROVED_BY_ME','Approved'],['RETURNED_BY_ME','Returned'],['ALL_MY_RECORDS','All'],['REJECTED_BY_ME','Rejected']].map(([tab,suffix])=>({id:section+'_'+tab,section,tab,permission:('canShow'+(section==='APPROVER'?'Approver':'Accounting')+suffix) as PermissionKey,requires:[section==='APPROVER'?'canAccessApproverCartable':'canAccessAccountingCartable'] as PermissionKey[]}))),

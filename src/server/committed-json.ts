@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import {createDraft,current,isDraft,original,enableArrayMethods,type Draft} from 'immer';
 import type {StateBacking} from './sqlite-records';
 
@@ -14,6 +15,8 @@ function freeze<T>(value:T):T {
   return value;
 }
 
+function metadata(s:fs.BigIntStats):string{return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;}
+
 /** One process owns the file. Readers never own a mutable committed object. */
 export class CommittedJson<T extends object> {
   private committed:T|undefined;
@@ -23,16 +26,26 @@ export class CommittedJson<T extends object> {
   private readonly file:string;
   private readonly backing:StateBacking<T>|undefined;
   constructor(file:string,backing?:StateBacking<T>){this.file=file;this.backing=backing;}
+  private jsonContents():{stamp:string;bytes:Buffer;stats:fs.BigIntStats}|undefined {
+    try{
+      const before=fs.statSync(this.file,{bigint:true}),bytes=fs.readFileSync(this.file),after=fs.statSync(this.file,{bigint:true});
+      if(metadata(before)!==metadata(after))throw Error('Database changed while reading.');
+      // Windows may keep every metadata field unchanged on a rapid same-size
+      // in-place write. Cache/CAS identity must also include the actual bytes.
+      return {stamp:`${metadata(after)}:${createHash('sha256').update(bytes).digest('hex')}`,bytes,stats:after};
+    }catch(e:any){if(e.code==='ENOENT')return undefined;throw e;}
+  }
   private diskStamp():string|undefined {
     if(this.backing)return this.backing.signature();
-    try{const s=fs.statSync(this.file,{bigint:true});return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;}
-    catch(e:any){if(e.code==='ENOENT')return undefined;throw e;}
+    return this.jsonContents()?.stamp;
   }
   private refresh():void {
-    const stamp=this.diskStamp();
+    const json=this.backing?undefined:this.jsonContents(),stamp=this.backing?this.backing.signature():json?.stamp;
     if(!stamp)throw Error('Committed database is missing; automatic reset is forbidden.');
     if(this.committed&&stamp===this.stamp)return;
-    const value=this.backing?this.backing.read():JSON.parse(fs.readFileSync(this.file,'utf8')) as T;
+    // Decode the same bytes that established the signature, never a second
+    // unrelated read paired with the first read's identity.
+    const value=this.backing?this.backing.read():JSON.parse(json!.bytes.toString('utf8')) as T;
     if(this.diskStamp()!==stamp)throw Error('Database changed while reading.');
     this.committed=freeze(value);this.stamp=stamp;this.normalized=false;
   }
@@ -62,16 +75,18 @@ export class CommittedJson<T extends object> {
     if(this.backing.signature()!==stamp){this.committed=undefined;this.stamp=undefined;throw Error('Store changed after commit.');}
     this.committed=freeze(value);this.stamp=stamp;this.normalized=true;
   }
-  publish(value:T,written:fs.BigIntStats):void {
-    const current=fs.statSync(this.file,{bigint:true});
-    if(['dev','ino','size','mtimeNs'].some(key=>current[key as keyof fs.BigIntStats]!==written[key as keyof fs.BigIntStats])){
+  publish(value:T,written:fs.BigIntStats,encoded=JSON.stringify(this.snapshot(value))):void {
+    // encoded is the exact candidate serialized once before write/fsync/rename.
+    // A new disk signature alone must not be attached to an older candidate.
+    const disk=this.jsonContents(),current=disk?.stats;
+    if(!current||['dev','ino','size','mtimeNs'].some(key=>current[key as keyof fs.BigIntStats]!==written[key as keyof fs.BigIntStats])||!disk!.bytes.equals(Buffer.from(encoded,'utf8'))){
       this.committed=undefined;this.stamp=undefined;this.normalized=false;
       throw Error('Committed file was replaced externally; snapshot invalidated.');
     }
     // Ownership transfers from a detached current(draft) snapshot; unchanged branches
     // are already frozen. The live draft remains private, never the committed value.
     this.committed=freeze(this.snapshot(value));
-    this.stamp=`${current.dev}:${current.ino}:${current.size}:${current.mtimeNs}:${current.ctimeNs}`;this.normalized=true;
+    this.stamp=disk!.stamp;this.normalized=true;
   }
   markNormalized(value:T,persisted:boolean):void {
     if(!persisted){this.assertCurrent(value);this.committed=freeze(this.snapshot(value));}

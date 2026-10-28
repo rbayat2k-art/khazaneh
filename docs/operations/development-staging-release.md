@@ -1,4 +1,52 @@
+## Production جاری v90b — PASS / DEPLOYED، ۲۰۲۶/۱۰/۲۷
+
+[رکورد انتشار استعلام حساب، پرداخت پرسنلی و نقش‌ها](release-v90-role-access.md)؛ manifest=a488d55addb8ca11c06898243b4fe6fa55f4464570053c38e345f936be3e1504؛ بکاپ۶۶فایل وrestoreمستقل، حفظ رمزها/ACLقدیمی/شرکت/سقف/چهارمسیر، فقط۱۸مجوزجدیدمصوب و استعلام مستقیم افراد بدون سرپرست. مهاجرت durableV90-1، Linux CURRENT با ثبت تازه و۳۵۰audit و حفظACL/مسیر PASS؛ build/QA/مرورگر/دامنه/health/پایش کوتاه PASS. خرید منتشر نشد و۱۵۷ورودیcanonical آن محفوظ است؛ checkoutخرید مستقیماًdeployنشود. recovery فقطCURRENT+binaryسازگارv90b، بدونrestoreقدیمی یاdowngrade؛ بدونcleanup/commit/push/بانک‌وپیامک واقعی/فشار تازه. بخش‌های پایین تاریخی‌اند.
+
 # فرایند دائمی توسعه، Staging و انتشار شاهراه
+
+## Production جاری v62b — PASS / DEPLOYED
+
+[انتشار همان نسخهٔ پذیرفته‌شده](release-v62b.md)، manifest=`0e1d7676bd13a94e64709d19cd02316d926800c086159cd03bf718ed1c9951ee`؛بازگشایی۱۳:۳۶:۳۳UTC،۲۰۲۶/۱۰/۲۵. بکاپ وrestore مستقل داخل/خارجسرور وvault،حفظ اطلاعات/رمز/نقش وhealth/مرورگر عمومی PASS. Stageخصوصی v62b مستقل و محفوظ است؛مراحل قبلی انتظارپذیرش پایین تاریخی‌اند. نسخهٔ تازه همچنان چرخهٔ پذیرش خودش را لازم دارد؛بازگشت باCURRENTstate/binaryسازگار طبق‌رکورد.
+
+## Staging جاری v62b — ورود مدیریتی، نسخهٔ نهایی
+
+[رکورد و راهنمای تست](staging-v62-admin-user-entry.md)، manifest=`0e1d7676bd13a94e64709d19cd02316d926800c086159cd03bf718ed1c9951ee`؛ root=`ops/private/permanent-staging-admin-user-entry-v62b` در55120، همان رمزها و داده/نقش/vault. پنجره‌های عملیاتی بالای نوار بازگشت‌اند؛ گیت‌های بازاستفاده‌شدهٔ backend یکسان و مرورگر/restore/smoke/restart تازه در گزارش تفکیک شده‌اند. Production همچنان v61b است؛ root v62 پایین متوقف و سابقه است.
+
+## Staging جاری v62 — ورود مدیر به پرتال کاربر
+
+[رکورد نسخه و راهنمای امتحان](staging-v62-admin-user-entry.md)، manifest=`a168d3929e015310a41f8eb68ad9df3408be4d25afd5a6d9e9e8ddeed38efb4e`؛ root=`ops/private/permanent-staging-admin-user-entry-v62`، همان55120 و رمزها.۵۰۵تست هرadapter،مرورگر،restore/restart و health PASS؛ داده/نقش/رمز/کلیدها محفوظ. Production همچنان v61b؛ انتشار v62 به پذیرش همین candidate نیاز دارد.
+
+## Production جاری v61b — PASS / DEPLOYED، ۲۰۲۶/۱۰/۲۵
+
+[رکورد انتشار](release-v61b.md) نتیجهٔ واقعی بازگشایی08:49UTC، بکاپ/restore، حفظ اطلاعات/رمز/مجوز و health/browser را ثبت می‌کند. manifest=`0efae2b038c6f983a44e39de0f0c04517cf46d04795da08c70deeea07f8c29be`. بخش Stage v61b پایین، وضعیت تاریخی پیش از پذیرش است. مجوز انتشار v61b برای تغییر بعدی معتبر نیست.
+
+## Staging جاری v61b — اصلاح فرم/خروجی/JSON، منتظر پذیرش
+
+[رکورد گیت و تحویل](staging-v61-revision-export.md)، manifest=`0efae2b038c6f983a44e39de0f0c04517cf46d04795da08c70deeea07f8c29be`؛ root=`ops/private/permanent-staging-revision-export-v61b`، همان55120 و رمزهای قبلی.۴۹۵تست هر adapter،۵بازاجرای استعلام،۱۰گروه مرورگر و backup/restore/restart CURRENT-state/health PASS. داده، نقش، رمز و vault آخرین v60 محفوظ‌اند؛ root آن متوقف/حفظ شده است. F01/F03 و نقص JSON کش/metadata رفع شدند؛ بدون reset/migration، پاک‌سازی، Production یا commit/push. تا پذیرش مشخص همین candidate، انتشار دامنه مجاز نیست؛ rollback فقط CURRENT state و binary سازگار. وضعیت‌های «جاری» پایین تاریخچه‌اند.
+
+## درخواست انتشار v60 — گیت BLOCKED، Production همان v57b
+
+[رکورد گیت](release-v60-gate.md)،۲۰۲۶/۱۰/۲۵: snapshot v57b در GitHub انجام شد؛ اما F01/F03 روی artifact v60 دوباره بازتولید شدند. مجوز انتشار مالک برقرار است ولی گیت دور زده نشد؛ Stage فعال پایین و Production بدون تغییر مانده‌اند. اصلاح، پذیرش نسخه تازه و recovery/Linux rehearsal پیش از ادامه لازم‌اند. نتیجه۴۷۸تست قبلی ادعای پوشش یافته‌های تازه نیست.
+
+## Staging جاری v60 — Windows JSON و حساب‌های مبدأ مشترک، منتظر پذیرش
+
+[رکورد نسخه](staging-v60-windows-json.md)، manifest=`1f7e43279cd0985cfbf3b0b5b6dafd5b44c36ea7ffdaa34bf4cff08a9d582c9f`؛ root=`ops/private/permanent-staging-windows-json-v60`، همان آدرس55120 و رمزهای قبلی. هر۴۷۸تست هر adapter، پنج تکرار استعلام، مرورگر و backup/restore/startup/health PASS؛ آخرین داده، نقش، مسیر و vault محفوظ. تغییر فقط Staging است؛ Production/commit/push/تماس واقعی انجام نشد. rollback فقط CURRENT state با binary سازگار، نه DB منجمد root قدیمی. پذیرش مالک NOT RUN و پنج finding قدیمی خارج دامنه بازند. بخش‌های «Staging جاری» پایین تاریخچه‌اند؛ رکورد شکست v59b حذف نشده است.
+
+## Staging جاری v58b — مستقیم به حسابداری، منتظر پذیرش
+
+[رکوردنسخه](staging-v58b-direct-accounting.md)، manifest=`093313894ecdbd3d610466f5b565c44d7cac1461a18d81241d1b3708afa77247`؛root=`ops/private/permanent-staging-direct-accounting-v58b`،همان `http://127.0.0.1:55120/` ورمزهایقبلی.۴۵۴تستهرadapter،مرورگرmixed/اعلان/reload/RTL،بار۲۱حساب/۱۹۲ردیف وrestore/انتقالجاری/health PASS. schema۱وداده/نقش/vaultمحفوظ؛مجوزفقطStage،بدونProduction/commit/push. پس ازانتخاب صریح مستقیم،downgradeبهv58aمجازنیست؛CURRENTstate+roll-forwardطبق‌رکورد. پذیرشمالکNOTRUN؛پنجfindingقدیمی وپرسشبانک‌هاازاین‌تغییرجدا هستند. Productionمطابق‌رکوردv57b؛Stage«جاری»پایینتاریخی‌اند.
+
+## Staging جاری v58a — PASS محدودهٔ تغییر، منتظر پذیرش مالک
+
+[مسیر مستقل چهارنوع درخواست](staging-v58-request-routing.md)؛ manifest=`40dbe78b2aa88345f5201b888c59660cc6a3e49d3d294be1388e502667d5b66e`. root=`ops/private/permanent-staging-request-routing-v58`؛ همان `http://127.0.0.1:55120/` و رمز/داده/نقش/vault قبلی. بکاپ/restore مستقل وstartup state برابر،۴۴۷تست هرadapter،۸مسیرمرورگر،۲۱حساب/۹۶سند/۱۹۲ردیف وrecovery PASS. Production همچنانv57b و دست‌نخورده؛ پذیرش/commit/push/نشر NOT RUN. این نامزد شاملv56است و انتشارمستقیمcheckoutمجازنیست. پنجfindingقدیمی خارج ازتغییر بازند؛ جزئیات/محدودیت بار و بازگشت باCURRENTstate دررکوردنسخه است. بخش‌های Stageجاری پایین تاریخی‌اند.
+
+## Production جاری v57b — PASS / DEPLOYED، Stage همچنان v56c
+
+[بانک‌های فایل حساب‌ها و قالب نسخه‌دار](release-v57-bank-catalog.md)، manifest=`309c04c79a22058188487f07b6a283e3793e0497e01054f6252ca0f680a19b21`، با مجوز صریح مالک روی دامنه منتشر شد؛ بکاپ/restore، اطلاعات/رمز/مجوز/vault محفوظ و سلامت عمومی PASS. سورس انتشار مستقل از v55 + اصلاح مصوب است؛ v56 کارهای باز داخل آن نیست. Stage دائمی پایین بدون تغییر روی v56c مانده؛ عبارت Production=v55 در سابقهٔ آن، وضعیت تاریخی تحویل همان نامزد است. checkout فعال دارای v56 است، بنابراین مستقیم deploy نشود. commit/push تازه انجام نشد.
+
+## Staging جاری v56c — PASS، Production تغییر نکرد
+
+[رکورد کارهای باز و تعیین تکلیف موردی مدیر](staging-v56-open-work.md)، manifest=`a8a12dcbf409cb25f81b9b39cb1f03cb1360b638750c696f470dbac2753806f4`؛ root `ops/private/permanent-staging-open-work-v56` در `http://127.0.0.1:55120/` با همان رمزها و داده/vault جاری. توقف writer قبلی، بکاپ/restore مستقل، هر۴۲۸تست SQLite/JSON، مرورگر و ورود/خروج/assetها PASS. ریشه v55 و بکاپ‌ها حفظ‌اند؛ پذیرش مالک، commit/push و انتشار Production **NOT RUN**. بخش‌های Staging جاری پایین تاریخی‌اند؛ Production آخرین انتشار v55 است.
 
 ## وضعیت جاری v55 — PASS / DEPLOYED
 

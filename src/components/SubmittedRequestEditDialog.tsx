@@ -59,8 +59,8 @@ export function SubmittedRequestEditDialog({target,requesterId,costCenters,canEd
       <form onSubmit={save} className="space-y-3">
         <fieldset disabled={busy||readingFiles} className="space-y-3">
           <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>مبلغ (ریال)</span><RialInput ref={amount} aria-label="مبلغ (ریال)" min={1} step={1} required value={draft.amount} onChange={e=>set('amount',e.target.value)} className={control}/></label>
-          {!advance&&field('payeeName','نام دریافت‌کننده (صاحب حساب)',true)}
-          <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>شرح درخواست</span><textarea aria-label="شرح درخواست" required rows={3} value={description} onChange={e=>setDescription(e.target.value)} className={control}/></label>
+          {!advance&&field('payeeName',row.itemType==='ADVANCE'?'نام پرسنل':'نام گیرندهٔ وجه / صاحب حساب مقصد',true)}
+          <label className="block text-xs font-semibold text-slate-700 space-y-1"><span>{target.itemType==='ADVANCE'||row.itemType==='ADVANCE'?'علت درخواست مساعده':'شرح و بابت پرداخت'}</span><textarea aria-label={target.itemType==='ADVANCE'||row.itemType==='ADVANCE'?'علت درخواست مساعده':'شرح و بابت پرداخت'} required rows={3} value={description} onChange={e=>setDescription(e.target.value)} className={control}/></label>
           {advance?<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{field('requestedMonth','ماه مورد تقاضا',true)}{field('suggestedDate','تاریخ پیشنهادی (شمسی)')}</div>:<>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{field('accountOrCard','شماره کارت (۱۶ رقم)',requireCard)}{field('iban','شماره شبا')}</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="block text-xs font-semibold text-slate-700 space-y-1"><span>بانک مقصد</span><select aria-label="بانک مقصد" value={draft.bankName} onChange={e=>set('bankName',e.target.value)} className={control}>{[...new Set(['',draft.bankName,...DESTINATION_BANKS])].map(bank=><option key={bank} value={bank}>{bank||'انتخاب بانک (اختیاری)'}</option>)}</select></label>

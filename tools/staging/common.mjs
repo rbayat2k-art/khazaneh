@@ -34,6 +34,8 @@ export function childEnvironment(root) {
   const env = {};
   for (const name of ['SystemRoot', 'WINDIR', 'PATH', 'TEMP', 'TMP', 'LOCALAPPDATA']) if (process.env[name]) env[name] = process.env[name];
   return { ...env, NODE_ENV: 'production', SHAHRAH_STAGING_ROOT: root,
+    ...(JSON.parse(fs.readFileSync(file,'utf8')).accountInquiriesEnabled===true?{TREASURY_ACCOUNT_INQUIRIES_ENABLED:'true'}:{}),
+    ...(JSON.parse(fs.readFileSync(file,'utf8')).personnelBalancesEnabled===true?{TREASURY_PERSONNEL_BALANCES_ENABLED:'true'}:{}),
     TREASURY_STORAGE_MODE: 'sqlite', TREASURY_DATA_DIR: path.join(root, 'data'), DISABLE_EXTERNAL_INTEGRATIONS: 'true', TREASURY_BANK_INQUIRY_MOCK:real?'false':'true',
     ...(real?{SHAHRAH_STAGING_CARDINFO_REAL:'true',TREASURY_CARDINFO_VAULT_DIR:path.join(root,'secrets')}:{}) };
 }

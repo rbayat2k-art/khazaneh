@@ -33,5 +33,5 @@ export function activeRequestProjection(db:TreasuryDatabaseState):TreasuryDataba
   return {...db,advanceRequests:db.advanceRequests.filter(r=>!r.requesterDeletedAt),paymentRequests:db.paymentRequests.filter(r=>!r.requesterDeletedAt),batchPayments:db.batchPayments.filter(r=>!r.requesterDeletedAt).map(publicBatch),notifications:(db.notifications||[]).filter(n=>!deleted.has(n.requestId||'')&&!deleted.has(n.rowId||'')&&!(n.eventType==='REQUEST_SUBMITTED'&&!n.rowId&&changedGroups.has(n.requestId||'')))};
 }
 export function hasDeletionFinancialLinks(db:TreasuryDatabaseState,id:string):boolean{
-  return db.receiptArchives.some(r=>r.relatedPaymentIds?.includes(id))||db.dailyCovers.some(r=>r.advanceRequestIds?.includes(id)||r.paymentRequestIds?.includes(id));
+  return (db.accountInquiries||[]).some(q=>q.rows.some(r=>r.financialSource?.requestId===id||r.financialSource?.rowId===id||r.financialResult?.requestId===id||r.financialResult?.rowId===id))||db.receiptArchives.some(r=>r.relatedPaymentIds?.includes(id))||db.dailyCovers.some(r=>r.advanceRequestIds?.includes(id)||r.paymentRequestIds?.includes(id));
 }

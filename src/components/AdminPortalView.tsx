@@ -1,4 +1,10 @@
+import type {AccountInquiryRoute}from'../types/account-inquiry';
+import {supervisorCandidate,supervisorSelectionIssue} from '../utils/supervisor-selection';
 import {RialInput} from './RialInput';
+import {AdminUserEntry} from './AdminUserEntry';
+import {adminSessionActor} from '../utils/admin-session';
+import {RequestApprovalRoutes} from './RequestApprovalRoutes';
+import {sameRequestApprovers} from '../utils/request-approval-routing';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
@@ -60,6 +66,8 @@ import { AdminMasterDataAndSmsSection } from './AdminMasterDataAndSmsSection';
 import { getUserRoles, hasSupervisorPermissions } from '../utils/user-roles';
 import {PermissionSettings} from './PermissionSettings';
 import {RoleCompanyAccess} from './RoleCompanyAccess';
+import {OpenWorkPanel} from './OpenWorkPanel';
+import type {OpenWorkResult,ResolveWork} from '../utils/open-work-contract';
 import {permissionCount,supervisorCompanyAllowed} from '../utils/permission-registry';
 
 export type AdminSubTab =
@@ -74,6 +82,8 @@ export type AdminSubTab =
   | 'MASTER_COST_CENTERS';
 
 interface AdminPortalViewProps {
+  onLoadOpenWork:(id:string)=>Promise<OpenWorkResult>;
+  onResolveOpenWork:(body:ResolveWork)=>Promise<{ok:boolean;error?:string}>;
   currentUser: User;
   activeSubTab?: AdminSubTab;
   users: User[];
@@ -88,7 +98,7 @@ interface AdminPortalViewProps {
   smsConfig?: SmsGatewayConfig;
   smsLogs: SmsDispatchLogEntry[];
   searchInputRef: React.RefObject<HTMLInputElement | null>;
-  onSaveUser: (userData: Partial<User> & { replacementSupervisorId?: string }) => Promise<{
+  onSaveUser: (userData: Partial<User> & { replacementSupervisorId?: string;expectedRequestApprovers?:User['requestApprovers'];expectedAccountInquiryRoute?:AccountInquiryRoute|null }) => Promise<{
     ok: boolean;
     error?: string;
     requiresReplacementSupervisor?: boolean;
@@ -148,7 +158,7 @@ export function getAccessScopeLabel(scope?: AccessScope): string {
     case 'SELF_ONLY':
       return 'فقط درخواست‌های خود شخص';
     case 'ASSIGNED_AND_SUBORDINATES':
-      return 'درخواست‌های ارجاع‌شده و زیرمجموعه مستقیم';
+      return 'درخواست‌های خود فرد، ارجاع‌شده و زیرمجموعه‌ها';
     case 'DEPARTMENT':
       return 'درخواست‌های واحد سازمانی مجاز';
     case 'COMPANY_WIDE':
@@ -159,6 +169,7 @@ export function getAccessScopeLabel(scope?: AccessScope): string {
 }
 
 export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
+  onLoadOpenWork,onResolveOpenWork,
   currentUser,
   activeSubTab = 'USERS',
   users,
@@ -229,6 +240,10 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [mustChangePassword, setMustChangePassword] = useState(true);
   const [phone, setPhone] = useState('');
   const [supervisorId, setSupervisorId] = useState<string>('');
+  const [accountInquiryRoute,setAccountInquiryRoute]=useState<AccountInquiryRoute|undefined>();
+  const [initialAccountInquiryRoute,setInitialAccountInquiryRoute]=useState<AccountInquiryRoute|undefined>();
+  const [requestApprovers,setRequestApprovers]=useState<NonNullable<User['requestApprovers']>>({});
+  const [initialRequestApprovers,setInitialRequestApprovers]=useState<NonNullable<User['requestApprovers']>>({});
   const [isActive, setIsActive] = useState<boolean>(true);
   const [accessScope, setAccessScope] = useState<AccessScope>('SELF_ONLY');
   const [financialApprovalLimit, setFinancialApprovalLimit] = useState<string>('');
@@ -317,14 +332,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   };
 
   // Eligible supervisors (include any active user whose role or effective permissions allow approval)
-  const eligibleSupervisors = useMemo(
-    () =>
-      users.filter((u) => {
-        if (u.id === editingUserId || u.isActive === false) return false;
-        return hasSupervisorPermissions(u.effectivePermissions || {}, u.effectiveAccessScope || u.accessScope, u.effectiveApprovalLimitRial) && supervisorCompanyAllowed(u,company,roleConfigs,companies) && ((u.effectiveAccessScope || u.accessScope) !== 'DEPARTMENT' || (u.department === department && u.company === company));
-      }),
-    [users, editingUserId, roleConfigs, companies, department, company]
-  );
+  const eligibleSupervisors = useMemo(()=>users.filter(u=>u.id!==editingUserId&&supervisorCandidate(u,roleConfigs)).map(u=>({...u,supervisorSelectionIssue:supervisorSelectionIssue(u,company,department,roleConfigs,companies)})),[users,editingUserId,roleConfigs,companies,company,department]);
 
   const eligibleReplacementApprovers = useMemo(() => {
     const excludeId = needsReplacementPrompt?.targetUser?.id || editingUserId;
@@ -378,6 +386,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     setMustChangePassword(true);
     setPhone('');
     setSupervisorId('');
+    setRequestApprovers({});setInitialRequestApprovers({});setAccountInquiryRoute(undefined);setInitialAccountInquiryRoute(undefined);
     setIsActive(true);
     setAccessScope('SELF_ONLY');
     setFinancialApprovalLimit('');
@@ -388,6 +397,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   };
 
   const handleEditClick = (u: User) => {
+    if(isSavingUser)return;
     setEditingUserId(u.id);
     setName(u.name);
     setPersonnelCode(String(u.personnelCode || ''));
@@ -400,6 +410,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     setShowInitialPassword(false);
     setPhone(String(u.phone || ''));
     setSupervisorId(u.supervisorId || '');
+    setRequestApprovers({...u.requestApprovers});setInitialRequestApprovers({...u.requestApprovers});
+    setAccountInquiryRoute(u.accountInquiryRoute||undefined);setInitialAccountInquiryRoute(u.accountInquiryRoute||undefined);
     setIsActive(u.isActive !== false);
     setAccessScope(u.accessScope || u.effectiveAccessScope || 'SELF_ONLY');
     setFinancialApprovalLimit(
@@ -445,6 +457,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
         mustChangePassword: !editingUserId ? mustChangePassword : undefined,
         phone: phone.trim(),
         supervisorId: supervisorId || null,
+        ...(!sameRequestApprovers(requestApprovers,initialRequestApprovers)?{requestApprovers,expectedRequestApprovers:initialRequestApprovers}:{}),
+        ...(JSON.stringify(accountInquiryRoute??null)!==JSON.stringify(initialAccountInquiryRoute??null)?{accountInquiryRoute:accountInquiryRoute||null,expectedAccountInquiryRoute:initialAccountInquiryRoute||null}:{}),
         isActive,
         accessScope,
         financialApprovalLimit:
@@ -672,6 +686,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
   return (
     <div className="space-y-5">
+      {currentUser.role==='ADMIN'&&['USERS','ROLES'].includes(activeAdminTab)&&<OpenWorkPanel users={users} onLoad={onLoadOpenWork} onResolve={onResolveOpenWork}/>}
       {/* TAB: MASTER DATA OR SMS GATEWAY */}
       {(activeAdminTab === 'MASTER_COMPANIES' ||
         activeAdminTab === 'MASTER_DEPARTMENTS' ||
@@ -723,6 +738,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                 <button
                   type="button"
                   onClick={resetUserForm}
+                  disabled={isSavingUser}
                   className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -854,15 +870,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   </label>
                   <select
                     aria-label="محدوده دسترسی اطلاعات کاربر"
+                    aria-describedby={accessScope === 'ASSIGNED_AND_SUBORDINATES' ? 'user-assigned-scope-help' : undefined}
                     value={accessScope}
                     onChange={(e) => setAccessScope(e.target.value as AccessScope)}
                     className="w-full px-2.5 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                   >
                     <option value="SELF_ONLY">فقط درخواست‌های خود شخص</option>
-                    <option value="ASSIGNED_AND_SUBORDINATES">درخواست‌های ارجاع‌شده و زیرمجموعه</option>
+                    <option value="ASSIGNED_AND_SUBORDINATES">درخواست‌های خود فرد، ارجاع‌شده و زیرمجموعه‌ها</option>
                     <option value="DEPARTMENT">واحد سازمانی مجاز</option>
                     <option value="COMPANY_WIDE">کل شرکت مجاز</option>
                   </select>
+                  {accessScope === 'ASSIGNED_AND_SUBORDINATES' && <p id="user-assigned-scope-help" className="text-[11px] text-slate-500 mt-1 leading-relaxed">شامل درخواست‌های خود فرد، موارد ارجاع‌شده و زیرمجموعه‌های مستقیم و غیرمستقیم در شرکت‌های مجاز است.</p>}
                 </div>
               </div>
 
@@ -881,7 +899,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  سرپرست مستقیم / تأییدکننده مرحله اول
+                  سرپرست مستقیم / تأییدکننده پیش‌فرض
                 </label>
                 <select
                   aria-label="سرپرست مستقیم کاربر"
@@ -892,14 +910,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   <option value="">-- بدون سرپرست؛ ارسال مستقیم به حسابداری --</option>
                   {supervisorId&&!eligibleSupervisors.some(s=>s.id===supervisorId)&&<option value={supervisorId} disabled>{users.find(u=>u.id===supervisorId)?.name||'سرپرست فعلی'} (ارجاع فعلی؛ شرایط انتخاب مجدد برقرار نیست)</option>}
                   {eligibleSupervisors.map((sup) => (
-                    <option key={sup.id} value={sup.id}>
-                      {sup.name} ({sup.department} — {getUserRoles(sup).map(r => getRoleLabel(r, roleConfigs)).join('، ')})
+                    <option key={sup.id} value={sup.id} disabled={!!sup.supervisorSelectionIssue}>
+                      {sup.name} ({sup.department} — {getUserRoles(sup).map(r => getRoleLabel(r, roleConfigs)).join('، ')}){sup.supervisorSelectionIssue?' — '+sup.supervisorSelectionIssue:''}
                     </option>
                   ))}
                 </select>
               </div>
 
               {/* Financial limits override for roles with approval or payment permissions */}
+              <label className="block text-xs font-semibold text-slate-700 mb-3">مسیر مستقل مانده و صورت‌حساب<select aria-label="مسیر تأیید استعلام حساب کاربر" disabled={editingUserId===currentUser.id||isSavingUser} value={!accountInquiryRoute?'INHERIT':accountInquiryRoute.mode==='ACCOUNTING'?'ACCOUNTING':accountInquiryRoute.userId} onChange={e=>setAccountInquiryRoute(e.target.value==='INHERIT'?undefined:e.target.value==='ACCOUNTING'?{mode:'ACCOUNTING'}:{mode:'APPROVER',userId:e.target.value})} className="w-full px-3 py-2 mt-1 text-xs border border-slate-300 rounded-lg"><option value="INHERIT">پیش‌فرض: سرپرست مستقیم — بدون سرپرست نیازمند تنظیم مدیر است</option><option value="ACCOUNTING">مستقیم به حسابداری — انتخاب صریح مدیر</option>{users.filter(u=>u.id!==editingUserId&&u.isActive!==false&&u.effectivePermissions?.canApproveAccountInquiry&&u.effectiveAccessScope!=='SELF_ONLY').map(u=><option key={u.id} value={u.id}>{u.name} — تأییدکنندهٔ استعلام</option>)}</select><span className="block text-[11px] text-slate-500 mt-1 font-normal">فقط استعلام‌های جدید؛ تأیید اولیه اجازهٔ انتشار پاسخ نیست. چهار مسیر درخواست مالی تغییر نمی‌کنند.</span></label>
+              <RequestApprovalRoutes value={requestApprovers} onChange={setRequestApprovers} candidates={eligibleSupervisors} users={users} supervisorId={supervisorId} disabled={editingUserId===currentUser.id} saving={isSavingUser}/>
+
               {formRoles.some(r => r === 'APPROVER' || r === 'ACCOUNTING' || Boolean(roleConfigs.find(rc => rc.role === r)?.permissions?.canApprove)) && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -1215,6 +1236,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                           </td>
                           <td className="py-2.5 px-2.5">
                             <div className="flex flex-wrap items-center gap-1">
+                              {currentUser.role==='ADMIN'&&u.id!==currentUser.id&&u.role!=='ADMIN'&&<AdminUserEntry user={u}/>}
                               <button
                                 type="button"
                                 onClick={() => handleEditClick(u)}
@@ -1476,7 +1498,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     onClick={async () => {
                       setIsSavingRole(true);
                       try {
-                        await onResetRoleDefaults();
+                        const result=await onResetRoleDefaults();
+                        setRoleSaveError(result.ok?null:result.error||'بازنشانی نقش‌ها انجام نشد.');
                       } finally {
                         setIsSavingRole(false);
                       }
@@ -1522,7 +1545,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     ) {
                       setIsSavingRole(true);
                       try {
-                        await onResetRoleDefaults(activeRoleConfig.role);
+                        const result=await onResetRoleDefaults(activeRoleConfig.role);
+                        setRoleSaveError(result.ok?null:result.error||'بازنشانی نقش انجام نشد.');
                       } finally {
                         setIsSavingRole(false);
                       }
@@ -1670,14 +1694,16 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     </label>
                     <select
                       value={roleScopeDraft}
+                      aria-describedby={roleScopeDraft === 'ASSIGNED_AND_SUBORDINATES' ? 'role-assigned-scope-help' : undefined}
                       onChange={(e) => setRoleScopeDraft(e.target.value as AccessScope)}
                       className="w-full px-2.5 py-2 text-xs bg-white border border-slate-300 rounded-lg"
                     >
                       <option value="SELF_ONLY">فقط درخواست‌های خود شخص</option>
-                      <option value="ASSIGNED_AND_SUBORDINATES">درخواست‌های ارجاع‌شده و زیرمجموعه</option>
+                      <option value="ASSIGNED_AND_SUBORDINATES">درخواست‌های خود فرد، ارجاع‌شده و زیرمجموعه‌ها</option>
                       <option value="DEPARTMENT">واحد سازمانی مجاز</option>
                       <option value="COMPANY_WIDE">کل شرکت مجاز</option>
                     </select>
+                    {roleScopeDraft === 'ASSIGNED_AND_SUBORDINATES' && <p id="role-assigned-scope-help" className="text-[11px] text-slate-500 mt-1 leading-relaxed">شامل درخواست‌های خود فرد، موارد ارجاع‌شده و زیرمجموعه‌های مستقیم و غیرمستقیم در شرکت‌های مجاز است.</p>}
                   </div>
 
                   <div>
@@ -1873,7 +1899,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                         {log.actionType}
                       </td>
                       <td className="py-2.5 px-3 font-semibold text-slate-800 break-words">
-                        {log.actorName}
+                        {adminSessionActor(log.actorName,log.adminSession)}
                       </td>
                       <td className="py-2.5 px-3 text-blue-800 font-semibold break-words">
                         {log.targetUserName || '---'}

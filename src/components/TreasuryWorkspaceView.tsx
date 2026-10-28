@@ -70,7 +70,7 @@ import {
   buildUnifiedTreasuryItems,
   type UnifiedTreasuryItem,
 } from '../utils/excelExport';
-import {exportTreasuryOperational as exportTreasuryItemsToExcel} from '../utils/treasury-operational-export';
+import type {TreasuryExportSelection} from '../utils/export-download';
 import { SourceBankAccountSelector } from './SourceBankAccountSelector';
 import { BankAccountImportDialog,type ImportBankAccounts } from './BankAccountImportDialog';
 import {BANK_ACCOUNT_BANKS as SYSTEM_BANKS,bankAccountBankName} from '../utils/bank-account-import';
@@ -80,6 +80,10 @@ import {treasuryTargets,treasuryExpectedPaid} from '../utils/treasury-targets';
 import {RequestTimeHeaders,RequestTimeCells,RequestTimeHelp} from './RequestTimeColumns';
 import {normalizeRolePermissionSet} from '../types/treasury';
 import {BankInquirySummary} from './BankInquirySummary';
+import {TreasuryRejectionDialog,treasuryRejectionChoices,type TreasuryRejectionResult} from './TreasuryRejectionDialog';
+import {activeTreasuryRejection,type TreasuryRejectionCommand} from '../utils/treasury-rejection';
+import type {RejectionRow} from '../utils/treasury-rejection';
+import type {RequestRecordTarget} from '../utils/request-details';
 
 const ALL_PAYMENT_METHODS: Array<{ id: PaymentMethodType; label: string }> = [
   { id: 'PAYA', label: 'پایا (حواله الکترونیک)' },
@@ -90,6 +94,8 @@ const ALL_PAYMENT_METHODS: Array<{ id: PaymentMethodType; label: string }> = [
 ];
 
 interface TreasuryWorkspaceViewProps {
+  onTreasuryRejection:(payload:TreasuryRejectionCommand)=>Promise<TreasuryRejectionResult>;
+  onExportWorkbook:(selection:TreasuryExportSelection,isCurrent:()=>boolean)=>Promise<{fileName:string;rowCount:number}>;
   onOpenBankInquiry:()=>void;
   onReturnForCorrection:(payload:TreasuryReturn)=>Promise<{ok:boolean;error?:string}>;
   currentUser: User;
@@ -158,6 +164,8 @@ interface TreasuryWorkspaceViewProps {
 }
 
 export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
+  onTreasuryRejection,
+  onExportWorkbook,
   currentUser,
   advanceRequests,
   paymentRequests,
@@ -184,6 +192,14 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   onShowToast,
 }) => {
   const [subTab, setSubTab] = useState<TreasurySubTab>(initialSubTab);
+  const [rejection,setRejection]=useState<{items:UnifiedTreasuryItem[];action:'REJECT'|'RESTORE'}|null>(null);
+  const exportEpoch=useRef(0),[isExporting,setIsExporting]=useState(false),exportBusy=useRef(false);
+  useEffect(()=>()=>{exportEpoch.current++;},[currentUser.id,subTab]);
+  const exportPermissions=normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role),canExport=exportPermissions.canExportReports;
+  const exportSelection=async(items:UnifiedTreasuryItem[])=>{
+    const epoch=exportEpoch.current;if(!canExport)throw Error('مجوز خروجی غیرفعال است.');
+    return onExportWorkbook({purpose:'OPERATIONAL',pool:subTab as 'QUEUE'|'IN_PAYMENT'|'COMPLETED',uids:items.map(r=>r.uid)},()=>exportEpoch.current===epoch);
+  };
   const [showBankImport,setShowBankImport]=useState(false);
   const [returnTarget,setReturnTarget]=useState<UnifiedTreasuryItem|null>(null);
   const closeBankImport=React.useCallback(()=>setShowBankImport(false),[]);
@@ -463,6 +479,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   }, [advanceRequests, paymentRequests, batchPayments, receiptArchives]);
 
   // Build Unified Items for Completed Payments (Paid + Manual Payments)
+  const unifiedRejected=useMemo(()=>buildUnifiedTreasuryItems({batchPayments,paymentRequests,advanceRequests,manualPayments:[],receiptArchives,targetStatuses:['Rejected_Treasury'],includeManuals:false}),[advanceRequests,paymentRequests,batchPayments,receiptArchives]);
   const unifiedCompletedPayments = useMemo<UnifiedTreasuryItem[]>(() => {
     return buildCompletedTreasuryItems({
       batchPayments,
@@ -514,6 +531,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   const filteredInPayment = useMemo(() => {
     return unifiedInPaymentPool.filter((i) => matchesSearch(i, searchQuery));
   }, [unifiedInPaymentPool, searchQuery]);
+  const rejectedEntries=unifiedRejected.filter(i=>matchesSearch(i,searchQuery)).flatMap<{key:string;item:UnifiedTreasuryItem;target:RequestRecordTarget;row:RejectionRow}>(item=>item.type==='BATCH'?(item.batchItems||[]).map(row=>({key:item.uid+':'+row.id,item:{...item,batchItems:[row]},target:{kind:'BATCH_ITEM' as const,id:item.id,rowId:row.id},row})):[{key:item.uid,item,target:{kind:item.type as 'PAYMENT'|'ADVANCE',id:item.id},row:(item.rawPayment||item.rawAdvance)!}]);
 
   const filteredCompleted = useMemo(() => {
     return unifiedCompletedPayments.filter((i) => {
@@ -697,15 +715,11 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
   // Export Excel & Move to In-Payment Pool
   const handleExportQueueAndMoveToInPayment = async (itemsToProcess: UnifiedTreasuryItem[]) => {
-    if (itemsToProcess.length === 0) return;
-
-    const exportRes = exportTreasuryItemsToExcel(itemsToProcess, {
-      fileNamePrefix: 'treasury-payment-export',
-      sheetTitle: 'لیست دستور پرداخت و مشخصات کامل بانکی ذینفعان جهت پرداخت',
-    });
-
+    if (!canExport||!exportPermissions.canExecutePayment||exportBusy.current||itemsToProcess.length === 0) return;
+    exportBusy.current=true;setIsExporting(true);
     setIsMovingPool(true);
     try {
+      const exportRes=await exportSelection(itemsToProcess);
       const ok = await onMoveTreasuryPool({
         items: treasuryTargets(itemsToProcess),
         targetPool: 'IN_PAYMENT',
@@ -716,7 +730,8 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
         setSelectedQueueUids([]);
         if(normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role).canAccessTreasuryInPayment)setSubTab('IN_PAYMENT');
       }
-    } finally {
+    } catch(error){onShowToast?.(error instanceof Error?error.message:'خروجی صادر نشد؛ انتقال انجام نشد.');} finally {
+      exportBusy.current=false;setIsExporting(false);
       setIsMovingPool(false);
     }
   };
@@ -747,23 +762,21 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
   };
 
   // Export Excel only
-  const handleExportExcelOnly = (
+  const handleExportExcelOnly = async (
     itemsToExport: UnifiedTreasuryItem[],
     prefix: string,
     sheetTitle: string
   ) => {
-    if (itemsToExport.length === 0) return;
+    if (!canExport||exportBusy.current||itemsToExport.length === 0) return;
+    exportBusy.current=true;setIsExporting(true);
     try{
-    const res = exportTreasuryItemsToExcel(itemsToExport, {
-      fileNamePrefix: prefix,
-      sheetTitle,
-    });
+    const res = await exportSelection(itemsToExport);
     if (onShowToast) {
       onShowToast(
         `فایل اکسل عملیاتی «${res.fileName}» شامل ${res.rowCount} ردیف پرداخت دانلود شد؛ گزارش گردش کامل در منوی گزارش‌هاست.`
       );
     }
-    }catch(error){onShowToast?.(error instanceof Error?error.message:'خروجی تهیه نشد.');}
+    }catch(error){onShowToast?.(error instanceof Error?error.message:'خروجی تهیه نشد.');}finally{exportBusy.current=false;setIsExporting(false);}
   };
 
   const selectedModalSourceAccount = useMemo(() => {
@@ -964,6 +977,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
           count: unifiedCompletedPayments.length,
           badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-200',
         };
+      case 'REJECTED':return {title:'پرداخت‌های ردشده خزانه',subtitle:'فقط رد پرداخت خزانه؛ بازگردانی با دلیل به صف انتظار، بدون تغییر مبلغ یا تأییدهای قبلی',count:unifiedRejected.reduce((n,i)=>n+(i.batchItems?.length||1),0),badgeClass:'bg-rose-50 text-rose-900 border-rose-200'};
       case 'BANK_ACCOUNTS':
         return {
           title: 'مدیریت بانک‌ها و شماره‌حساب‌های مبدأ شرکت',
@@ -999,6 +1013,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
     subTab,
     unifiedPendingQueue.length,
     unifiedInPaymentPool.length,
+    unifiedRejected,
     unifiedCompletedPayments.length,
     companyBankAccounts,
     manualPayments.length,
@@ -1008,6 +1023,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {rejection&&<TreasuryRejectionDialog items={rejection.items} action={rejection.action} onClose={()=>setRejection(null)} onSubmit={onTreasuryRejection}/>}
       {returnTarget&&<TreasuryReturnDialog item={returnTarget} onClose={()=>setReturnTarget(null)} onReturn={onReturnForCorrection}/>}
       {['QUEUE','IN_PAYMENT','COMPLETED'].includes(subTab)&&<RequestTimeHelp/>}
       {['QUEUE','IN_PAYMENT'].includes(subTab)&&normalizeRolePermissionSet(currentUser.effectivePermissions,currentUser.role).canInquireBankDetails&&<button type="button" className="px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white text-slate-700" onClick={onOpenBankInquiry}>تکمیل و استعلام شبای مقصد</button>}
@@ -1075,10 +1091,10 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={selectedQueueObjects.length === 0 || isMovingPool}
+                  disabled={!canExport||!exportPermissions.canExecutePayment||isExporting||selectedQueueObjects.length === 0 || isMovingPool}
                   onClick={() => handleExportQueueAndMoveToInPayment(selectedQueueObjects)}
                   className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                    selectedQueueObjects.length > 0 && !isMovingPool
+                    canExport&&exportPermissions.canExecutePayment&&!isExporting&&selectedQueueObjects.length > 0 && !isMovingPool
                       ? 'bg-emerald-700 text-white hover:bg-emerald-800 cursor-pointer shadow-xs'
                       : 'bg-slate-200 text-slate-500 cursor-not-allowed'
                   }`}
@@ -1093,7 +1109,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
                 <button
                   type="button"
-                  disabled={selectedQueueObjects.length === 0}
+                  disabled={!canExport||isExporting||selectedQueueObjects.length === 0}
                   onClick={() =>
                     handleExportExcelOnly(
                       selectedQueueObjects,
@@ -1102,7 +1118,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                     )
                   }
                   className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
-                    selectedQueueObjects.length > 0
+                    canExport&&!isExporting&&selectedQueueObjects.length > 0
                       ? 'bg-white border-emerald-600 text-emerald-800 hover:bg-emerald-50 cursor-pointer'
                       : 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
                   }`}
@@ -1173,6 +1189,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                                 به در حال پرداخت
                               </button>
                               {currentUser.effectivePermissions?.canExecutePayment&&treasuryReturnRows(item).length>0&&<button type="button" onClick={()=>setReturnTarget(item)} className="px-2 py-1 text-[11px] font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 rounded cursor-pointer">عودت برای اصلاح</button>}
+                              {currentUser.effectivePermissions?.canExecutePayment&&currentUser.effectivePermissions?.canRejectTreasuryPayment&&treasuryRejectionChoices([item],'REJECT').length>0&&<button type="button" onClick={()=>setRejection({items:[item],action:'REJECT'})} className="px-2 py-1 text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded">رد پرداخت</button>}
                               <button
                                 type="button"
                                 onClick={() => openPaymentModal([item])}
@@ -1194,6 +1211,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
         {/* =====================================================================
             2. IN-PAYMENT POOL (In_Payment)
         ===================================================================== */}
+        {subTab==='REJECTED'&&<section className="bg-white border border-slate-200 rounded-xl p-4"><div className="w-full overflow-x-auto border border-slate-200 rounded-lg"><table className="request-record-table request-summary-table w-full text-right border-collapse text-xs"><thead><RequestSummaryHeaders/></thead><tbody className="divide-y divide-slate-200">{rejectedEntries.map((e,i)=><RequestSummaryRow key={e.key} target={e.target} index={i+1}><span className="block w-full text-rose-800 whitespace-pre-wrap" title={activeTreasuryRejection(e.row)?.reason}>علت رد: {activeTreasuryRejection(e.row)?.reason||'سابقهٔ رد نیازمند بررسی است.'}</span>{currentUser.effectivePermissions?.canExecutePayment&&currentUser.effectivePermissions?.canRestoreTreasuryPayment&&treasuryRejectionChoices([e.item],'RESTORE').length>0&&<button type="button" onClick={()=>setRejection({items:[e.item],action:'RESTORE'})} className="px-2 py-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded">بازگردانی به صف انتظار</button>}</RequestSummaryRow>)}{!rejectedEntries.length&&<tr><td colSpan={15} className="p-8 text-center text-slate-500">پرداخت ردشده‌ای در محدودهٔ مجاز شما نیست.</td></tr>}</tbody></table></div></section>}
         {subTab === 'IN_PAYMENT' && (
           <div className="pt-4 space-y-4">
             <div className="bg-purple-50/70 border border-purple-200 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -1226,7 +1244,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
                 <button
                   type="button"
-                  disabled={selectedInPaymentObjects.length === 0}
+                  disabled={!canExport||isExporting||selectedInPaymentObjects.length === 0}
                   onClick={() =>
                     handleExportExcelOnly(
                       selectedInPaymentObjects,
@@ -1235,7 +1253,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                     )
                   }
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
-                    selectedInPaymentObjects.length > 0
+                    canExport&&!isExporting&&selectedInPaymentObjects.length > 0
                       ? 'bg-white border-emerald-600 text-emerald-800 hover:bg-emerald-50'
                       : 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
                   }`}
@@ -1307,6 +1325,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                                 به صف انتظار
                               </button>
                               {currentUser.effectivePermissions?.canExecutePayment&&treasuryReturnRows(item).length>0&&<button type="button" onClick={()=>setReturnTarget(item)} className="px-2 py-1 text-[11px] font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 rounded cursor-pointer">عودت برای اصلاح</button>}
+                              {currentUser.effectivePermissions?.canExecutePayment&&currentUser.effectivePermissions?.canRejectTreasuryPayment&&treasuryRejectionChoices([item],'REJECT').length>0&&<button type="button" onClick={()=>setRejection({items:[item],action:'REJECT'})} className="px-2 py-1 text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded">رد پرداخت</button>}
                               <button
                                 type="button"
                                 onClick={() => openPaymentModal([item])}
@@ -1394,6 +1413,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
                 <button
                   type="button"
+                  disabled={!canExport||isExporting||sortedCompleted.length===0}
                   onClick={() =>
                     handleExportExcelOnly(
                       selectedCompletedObjects.length > 0
@@ -1403,7 +1423,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                       'گزارش کلیه پرداختی‌های انجام‌شده خزانه‌داری'
                     )
                   }
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg cursor-pointer shadow-xs"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>
@@ -1510,6 +1530,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                 <button
                   type="button"
                   onClick={() => openBankAccountCreateModal('TAB')}
+                  disabled={currentUser.role!=='ADMIN'&&!currentUser.effectivePermissions?.canManageBankAccounts}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-blue-700 hover:bg-blue-800 text-white rounded-lg cursor-pointer shadow-xs"
                 >
                   <PlusCircle className="w-4 h-4" />
@@ -1519,8 +1540,8 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
               </div>
             </div>
 
-            <div className="w-full border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full table-auto text-right border-collapse text-xs">
+            <div className="w-full border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="w-full min-w-[960px] table-auto text-right border-collapse text-xs">
                 <thead>
                   <tr>
                     <SortableHeader
@@ -1531,7 +1552,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                       onSort={handleBankAccSort}
                     />
                     <SortableHeader
-                      label="عنوان حساب و شرکت"
+                      label="عنوان حساب و صاحب حقوقی"
                       field="accountTitle"
                       type="text"
                       sortConfig={bankAccSort}
@@ -1665,6 +1686,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                           <div className="flex flex-wrap items-center gap-1.5">
                             <button
                               type="button"
+                              disabled={!acc.managementAccess?.edit}
                               onClick={() => openBankAccountEditModal(acc)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded cursor-pointer"
                             >
@@ -1672,7 +1694,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
                               <span>ویرایش</span>
                             </button>
 
-                            {acc.isActive && !acc.isDefault && (
+                            {acc.isActive && !acc.isDefault && acc.managementAccess?.setDefault && (
                               <button
                                 type="button"
                                 onClick={() => onSetDefaultBankAccount({ accountId: acc.id })}
@@ -1686,6 +1708,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
 
                             <button
                               type="button"
+                              disabled={!acc.managementAccess?.toggleStatus}
                               onClick={() =>
                                 onToggleBankAccountStatus({
                                   accountId: acc.id,
@@ -2201,7 +2224,7 @@ export const TreasuryWorkspaceView: React.FC<TreasuryWorkspaceViewProps> = ({
           role="dialog"
           aria-modal="true"
         >
-          <div className="bg-white border border-slate-200 rounded-xl max-w-xl w-full max-h-[92vh] overflow-y-auto p-5 space-y-4 shadow-xl">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-3xl w-full max-h-[92vh] overflow-y-auto p-5 space-y-4 shadow-xl">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">

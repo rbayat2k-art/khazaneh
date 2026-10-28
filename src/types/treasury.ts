@@ -1,4 +1,7 @@
+import {PERSONNEL_BALANCE_PERMISSIONS,type PersonnelBalancePermission,type PersonnelBalanceRequest,type PersonnelBalanceOperation,type PersonnelBalanceSummary,type PersonnelBalanceRef} from './personnel-balance';
 import type {BankDestination,InquiryConfig,InquiryJob,InquiryOperation} from '../utils/bank-inquiry';
+import {ACCOUNT_INQUIRY_PERMISSIONS} from './account-inquiry';
+import type {AccountInquiry,AccountInquiryFile,AccountInquiryOperation,AccountInquiryRoute,AccountInquiryPermission,AccountInquirySummary,AccountInquiryTab} from './account-inquiry';
 export type BuiltInRole = 'ADMIN' | 'REQUESTER' | 'APPROVER' | 'ACCOUNTING' | 'TREASURY';
 export type Role = BuiltInRole | string;
 
@@ -10,12 +13,14 @@ export type RequestStatus =
   | 'Paid'
   | 'Needs_Revision'
   | 'Rejected'
+  | 'Rejected_Treasury'
   | 'Closed'
   | 'Mixed';
 
 export type TreasurySubTab =
   | 'QUEUE'
   | 'IN_PAYMENT'
+  | 'REJECTED'
   | 'COMPLETED'
   | 'BANK_ACCOUNTS'
   | 'MANUAL'
@@ -88,9 +93,11 @@ export interface TreasuryCorrection {
   fromPool: 'Pending_Treasury' | 'In_Payment';
   approvedVersion: number;
   resolvedAt?: string;
+  reassignments?:Array<{side:'RECIPIENT'|'REFERRER';fromUserId:string;toUserId:string;byUserId:string;reason:string;at:string}>;
 }
 
 export interface ReviewComment {
+  adminSession?:AdminSessionProvenance;
   id: string;
   authorId: string;
   authorName: string;
@@ -99,7 +106,9 @@ export interface ReviewComment {
   createdAt: string;
 }
 
+export interface AdminSessionProvenance {id:string;adminId:string;adminName:string;reason:string;userId?:string;userName?:string}
 export interface ItemAuditEntry {
+  adminSession?:AdminSessionProvenance;
   id: string;
   action: string;
   changedBy: string;
@@ -137,6 +146,8 @@ export interface SourceBankAccountSnapshot {
 
 export interface CompanyBankAccount {
   id: string;
+  // Server projection only; never persisted or used as command authority.
+  managementAccess?: {edit:boolean;toggleStatus:boolean;setDefault:boolean};
   accountTitle: string;
   bankName: string;
   accountHolderName?: string;
@@ -169,6 +180,7 @@ export interface CompanyBankAccount {
 }
 
 export interface PaymentExecutionRecord {
+  adminSession?:AdminSessionProvenance;
   id: string;
   amount: number;
   paymentMethod?: PaymentMethodType;
@@ -202,7 +214,7 @@ export type AccessScope =
   | 'DEPARTMENT'
   | 'COMPANY_WIDE';
 
-export interface RolePermissionSet {
+export interface RolePermissionSet extends Partial<Record<AccountInquiryPermission|PersonnelBalancePermission,boolean>> {
   // Optional navigation preferences only; absence inherits the existing menu.
   canShowTrackingAll?:boolean; canShowTrackingAdvanceSingle?:boolean; canShowTrackingAdvanceBatch?:boolean;
   canShowTrackingPaymentSingle?:boolean; canShowTrackingPaymentBatch?:boolean; canShowTrackingRevision?:boolean;
@@ -242,6 +254,9 @@ export interface RolePermissionSet {
   canAccessTreasuryQueue?: boolean;          // زیرمنوی صف پرداخت‌های در انتظار
   canAccessTreasuryInPayment?: boolean;      // زیرمنوی مخزن در حال پرداخت
   canAccessTreasuryCompleted?: boolean;      // زیرمنوی پرداختی‌های انجام‌شده
+  canAccessTreasuryRejected?: boolean;
+  canRejectTreasuryPayment?: boolean;
+  canRestoreTreasuryPayment?: boolean;
   canAccessTreasuryBankAccounts?: boolean;   // زیرمنوی بانک‌ها و شماره‌حساب‌ها
   canAccessTreasuryManualPayment?: boolean;  // زیرمنوی ثبت پرداخت دستی و تلفنی
   canAccessTreasuryDailyCover?: boolean;     // زیرمنوی روکش روزانه بانک‌ها
@@ -287,7 +302,7 @@ export interface RoleDefinitionConfig {
   updatedBy?: string;
 }
 
-export function getDefaultPermissionsForRole(
+function baseDefaultPermissionsForRole(
   roleKey: string,
   baseTemplate?: BuiltInRole
 ): RolePermissionSet {
@@ -548,6 +563,11 @@ export function getDefaultPermissionsForRole(
   };
 }
 
+export function getDefaultPermissionsForRole(roleKey:Role,baseTemplate?:BuiltInRole):RolePermissionSet {
+  const p=baseDefaultPermissionsForRole(roleKey,baseTemplate);
+  return {...p,...Object.fromEntries(PERSONNEL_BALANCE_PERMISSIONS.map(k=>[k,roleKey==='ADMIN'])),...Object.fromEntries(ACCOUNT_INQUIRY_PERMISSIONS.map(k=>[k,roleKey==='ADMIN'])),canAccessTreasuryRejected:p.canExecutePayment,canRejectTreasuryPayment:p.canExecutePayment,canRestoreTreasuryPayment:p.canExecutePayment};
+}
+
 export function normalizeRolePermissionSet(
   perms: Partial<RolePermissionSet> | undefined,
   roleKey: string,
@@ -642,6 +662,9 @@ export function normalizeRolePermissionSet(
       perms.canViewTreasuryQueue ??
       perms.canExecutePayment ??
       defaults.canAccessTreasuryCompleted,
+    canAccessTreasuryRejected:perms.canAccessTreasuryRejected??perms.canExecutePayment??defaults.canAccessTreasuryRejected,
+    canRejectTreasuryPayment:perms.canRejectTreasuryPayment??perms.canExecutePayment??defaults.canRejectTreasuryPayment,
+    canRestoreTreasuryPayment:perms.canRestoreTreasuryPayment??perms.canExecutePayment??defaults.canRestoreTreasuryPayment,
     canAccessTreasuryBankAccounts:
       perms.canAccessTreasuryBankAccounts ??
       perms.canManageBankAccounts ??
@@ -761,6 +784,11 @@ export interface SmsEventTriggers {
 }
 
 export interface SmsGatewayConfig {
+  approvalReminders?:import('../server/approval-reminders').ApprovalReminderConfig;
+  remindersVersion?:number;
+  templates?: import('../utils/sms-templates').SmsTemplates;
+  templatesVersion?:number;
+  runtimeStatus?: {mode:'OFF'|'TEST_ONLY'|'LIVE';ready:boolean;providerSupported:boolean;reason:string};
   enabled: boolean;
   provider: SmsGatewayProvider;
   apiUrl: string;
@@ -787,6 +815,7 @@ export interface SmsDispatchLogEntry {
     | 'PASSWORD_RESET'
     | 'REQUEST_SUBMITTED'
     | 'PENDING_APPROVAL'
+    | 'APPROVAL_REMINDER'
     | 'RETURNED_FOR_REVISION'
     | 'REVISION_OR_REJECT'
     | 'FINAL_APPROVAL'
@@ -808,6 +837,8 @@ export interface SmsDispatchLogEntry {
 }
 
 export interface SecurityAuditLogEntry {
+  adminSession?:AdminSessionProvenance;
+  resources?:Array<{collection:string;id:string}>;
   id: string;
   actionType:
     | 'USER_CREATED'
@@ -821,9 +852,14 @@ export interface SecurityAuditLogEntry {
     | 'PASSWORD_CHANGED'
     | 'ROLE_CONFIG_UPDATED'
     | 'PENDING_REASSIGNED'
+    | 'OPEN_WORK_RESOLVED'
+    | 'REQUEST_APPROVAL_ROUTING_CHANGED'
     | '2FA_CHANGED'
     | 'LOGIN_LOCKED'
     | 'USER_LOGOUT'
+    | 'IMPERSONATION_STARTED'
+    | 'IMPERSONATION_ENDED'
+    | 'IMPERSONATED_ACTION'
     | 'OTP_RECOVERY_COMPLETED'
     | 'BANK_ACCOUNT_CREATED'
     | 'BANK_ACCOUNT_UPDATED'
@@ -854,6 +890,7 @@ export interface PasswordRecoveryRequest {
 }
 
 export interface UserSessionRecord {
+  impersonation?:{id:string;adminId:string;parentSessionHash:string;reason:string};
   token: string;
   userId: string;
   createdAt: number;
@@ -862,7 +899,12 @@ export interface UserSessionRecord {
   revokedReason?: string;
 }
 
+export type RequestApprovalType='ADVANCE_SINGLE'|'ADVANCE_BATCH'|'PAYMENT_SINGLE'|'PAYMENT_BATCH';
+/** Missing type inherits the organizational supervisor; an explicit mode is not a user ID. */
+export type RequestApprovalRoute=string|{mode:'ACCOUNTING'};
+export type RequestApprovers=Partial<Record<RequestApprovalType,RequestApprovalRoute>>;
 export interface User {
+  accountInquiryRoute?:AccountInquiryRoute|null;
   /** Scoped DTO only: supervisor eligibility within the viewing manager's companies. */
   supervisorAllowedCompanies?:string[];
   id: string;
@@ -878,6 +920,7 @@ export interface User {
   phone?: string;
   supervisorId?: string | null;
   supervisorName?: string | null;
+  requestApprovers?: RequestApprovers;
   isActive?: boolean;
   accessScope?: AccessScope;
   financialApprovalLimit?: number | null;
@@ -895,10 +938,13 @@ export interface User {
 }
 
 export interface BatchItem extends BankDestination {
+  treasuryRejections?:TreasuryPaymentRejection[];
+  approvalChain?: import('../utils/request-approval-chain').ApprovalChain;
   treasuryCorrection?: TreasuryCorrection;
   requesterDeletedAt?: string;
   requesterDeletedBy?: string;
   reviewRejection?:ReviewRejection;
+  adminSupervisorApproval?:{actorId:string;rejectionId:string;reason:string;at:string};
   reviewStartedAt?: string;
   requesterEditedAt?: string;
   id: string;
@@ -1001,12 +1047,15 @@ export interface BatchPaymentRequest {
 }
 
 export interface AdvanceRequest extends BankDestination {
+  treasuryRejections?:TreasuryPaymentRejection[];
+  approvalChain?: import('../utils/request-approval-chain').ApprovalChain;
   createdAtIso?: string;
   treasuryCorrection?: TreasuryCorrection;
   requesterDeletedAt?: string;
   requesterDeletedBy?: string;
   companyId?: string;
   reviewRejection?:ReviewRejection;
+  adminSupervisorApproval?:{actorId:string;rejectionId:string;reason:string;at:string};
   reviewStartedAt?: string;
   requesterEditedAt?: string;
   id: string;
@@ -1080,6 +1129,9 @@ export interface AdvanceRequest extends BankDestination {
 }
 
 export interface PaymentRequest extends BankDestination {
+  personnelBalanceRef?:PersonnelBalanceRef;
+  treasuryRejections?:TreasuryPaymentRejection[];
+  approvalChain?: import('../utils/request-approval-chain').ApprovalChain;
   entryOperation?: {key:string;fingerprint:string};
   externalOrder?: {orderedBy:string;origin:'PHONE_OR_WRITTEN'};
   createdAtIso?: string;
@@ -1088,6 +1140,7 @@ export interface PaymentRequest extends BankDestination {
   requesterDeletedBy?: string;
   companyId?: string;
   reviewRejection?:ReviewRejection;
+  adminSupervisorApproval?:{actorId:string;rejectionId:string;reason:string;at:string};
   reviewStartedAt?: string;
   requesterEditedAt?: string;
   id: string;
@@ -1168,6 +1221,8 @@ export interface PaymentRequest extends BankDestination {
 }
 
 export interface ManualPayment {
+  companyId?: string;
+  company?: string;
   entryOperation?: {key:string;fingerprint:string};
   createdAtIso?: string;
   id: string;
@@ -1221,7 +1276,17 @@ export interface ReceiptArchive {
   dateJalali: string;
 }
 
+export type TreasuryPaymentRejection={
+  schemaVersion:1;id:string;operationId:string;fingerprint:string;
+  byUserId:string;byName:string;at:string;reason:string;fromPool:'QUEUE'|'IN_PAYMENT';
+  restoredAt?:string;restoredById?:string;restoredByName?:string;restoreReason?:string;
+  restoreOperationId?:string;restoreFingerprint?:string;
+};
 export type NotificationEventType =
+  | 'ACCOUNT_INQUIRY'
+  | 'PERSONNEL_BALANCE'
+  | 'TREASURY_PAYMENT_REJECTED'
+  | 'TREASURY_PAYMENT_RESTORED'
   | 'REQUEST_SUBMITTED'
   | 'REQUEST_RESUBMITTED'
   | 'APPROVED_SUPERVISOR'
@@ -1243,16 +1308,34 @@ export interface AppNotification {
   trackingCode: string;
   requestId: string;
   rowId?: string | null;
-  itemType: 'BATCH_ITEM' | 'PAYMENT' | 'ADVANCE' | 'BATCH';
+  itemType: 'BATCH_ITEM' | 'PAYMENT' | 'ADVANCE' | 'BATCH' | 'ACCOUNT_INQUIRY' | 'PERSONNEL_BALANCE';
   recipientUserId?: string | null;
   recipientRole?: Role | null;
   actorName: string;
   createdAt: string;
   readByUserIds: string[];
-  targetSection: 'REQUESTER' | 'APPROVER' | 'ACCOUNTING' | 'TREASURY';
+  approvalChainStage?:{schemaVersion:1;round:number;step:number;recordVersion:number;stage:'APPROVER'|'ACCOUNTING'|'TREASURY'|'REVISION';userId?:string;rowIds?:string[]};
+  personnelBalanceRef?:{requestId:string;version:number;purpose:'ACCOUNTING'|'MINE'};
+  accountInquiryRef?:{inquiryId:string;rowId:string;rowVersion:number;purpose:'APPROVE'|'RESPOND'|'RELEASE'|'VIEW'|'REVISE';replyId?:string;targetTab?:AccountInquiryTab};
+  targetSection: 'REQUESTER' | 'APPROVER' | 'ACCOUNTING' | 'TREASURY' | 'ACCOUNT_INQUIRIES' | 'PERSONNEL_BALANCES';
 }
 
 export interface TreasuryDatabaseState {
+  /** Durable operational migration receipt, independent of rotating audit rows. */
+  roleFeatureAccessMigrationVersion?: 1;
+  roleFeatureAccessMigratedAt?: string;
+  personnelBalanceSchemaVersion?:1|2|3;
+  personnelBalanceReadOnly?:boolean;
+  personnelBalanceRequests?:PersonnelBalanceRequest[];
+  personnelBalanceOperations?:PersonnelBalanceOperation[];
+  personnelBalanceSummary?:PersonnelBalanceSummary;
+  /** Derived per-user projection only; never a persisted authority. */
+  accountInquirySummary?:AccountInquirySummary;
+  accountInquirySchemaVersion?:1|2;
+  accountInquiryReadOnly?:boolean;
+  accountInquiries?:AccountInquiry[];
+  accountInquiryFiles?:AccountInquiryFile[];
+  accountInquiryOperations?:AccountInquiryOperation[];
   bankInquiryConfig?:InquiryConfig;
   bankInquiryJobs?:InquiryJob[];
   bankInquiryOperations?:InquiryOperation[];
@@ -1263,6 +1346,7 @@ export interface TreasuryDatabaseState {
   costCenters?: CostCenterItem[];
   masterDataCodeSequences?: Partial<Record<MasterDataKind, number>>;
   smsConfig?: SmsGatewayConfig;
+  approvalReminderState?:import('../server/approval-reminders').ApprovalReminderState;
   smsLogs?: SmsDispatchLogEntry[];
   securityAuditLogs?: SecurityAuditLogEntry[];
   passwordRecoveryRequests?: PasswordRecoveryRequest[];
@@ -1281,4 +1365,4 @@ export type MasterDataKind = 'companies' | 'departments' | 'cost-centers';
 export type BulkMasterDataKind = Exclude<MasterDataKind,'companies'>;
 export type BulkMasterDataRow = {name:string;companyId:string;departmentId?:string|null;description?:string;budgetCategory?:string};
 export type ReviewStage='APPROVER'|'ACCOUNTING';
-export type ReviewRejection={byUserId:string;byName:string;stage:ReviewStage;reason:string;at:string;resolvedAt?:string;closedAt?:string;closeReason?:string};
+export type ReviewRejection={id?:string;byUserId:string;byName:string;stage:ReviewStage;reason:string;at:string;resolvedAt?:string;closedAt?:string;closeReason?:string;adminResolution?:{actorId:string;previousOwnerId:string;action:'APPROVE'|'CLOSE_REJECTED';reason:string;at:string}};

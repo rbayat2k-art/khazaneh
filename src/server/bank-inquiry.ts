@@ -1,3 +1,4 @@
+import{isPersonnelAdvance,destinationRecipient}from'../utils/financial-party';
 import crypto from 'node:crypto';
 import type {TreasuryDatabaseState,User} from '../types/treasury';
 import type {EffectiveAccess} from './access-control';
@@ -73,16 +74,16 @@ export function enqueueInquiry(db:TreasuryDatabaseState,user:User,auth:Auth,targ
 }
 export function completeInquiryCard(db:TreasuryDatabaseState,user:User,auth:Auth,target:InquiryTarget,input:unknown){const {row}=ready(db,target,user,auth);if(typeof input!=='string'||!/^\d{16}$/.test(normalizeCard(input)))return reject(400,'CARD_REQUIRED');const card=normalizeCard(input);if(card===row.accountOrCard)return;if(typeof row.accountOrCard==='string'&&/^\d{16}$/.test(normalizeCard(row.accountOrCard)))return reject(409,'CARD_CHANGE_REQUIRES_RETURN');invalidateBankInquiry(row,{accountOrCard:card});row.accountOrCard=card;row.version=(row.version||1)+1;}
 export function confirmInquiryOwner(db:TreasuryDatabaseState,user:User,auth:Auth,target:InquiryTarget,jobId:unknown,reason:unknown){
- const {row}=ready(db,target,user,auth,'canConfirmBankOwner'),r=row.bankInquiry;
+ const {row,parent}=ready(db,target,user,auth,'canConfirmBankOwner'),r=row.bankInquiry,advance=isPersonnelAdvance(target.itemType,parent,row);
  if(typeof reason!=='string'||!reason.trim()||reason.length>4000)return reject(400,'REASON_REQUIRED');
  if(!r||r.status!=='FOUND'||r.jobId!==jobId||r.fingerprint!==cardFingerprint(row.accountOrCard||'')||!r.ownerNames||!['02','03'].includes(r.depositStatus)||normalizeIban(row.iban||'')!==r.iban)return reject(409,'STALE_RESULT');
  if(r.ownerConfirmed)return;
- const previousName=target.itemType==='ADVANCE'?row.requesterName:row.payeeName;
+ const previousName=destinationRecipient(target.itemType,parent,row);
  (row.bankOwnerConfirmations||=[]).push({previousName,bankName:r.ownerNames,reason:reason.trim(),byId:user.id,byName:user.name,at:now(),jobId:r.jobId});
  (row.auditHistory||=[]).push({id:crypto.randomUUID(),action:'تأیید نام بانکی مقصد توسط خزانه',actorId:user.id,actorRole:user.role,changedBy:user.name,changedAt:now(),stage:'TREASURY',reason:reason.trim(),comment:`نام ثبت‌شده: ${previousName} ← نام بانکی تأییدشده: ${r.ownerNames}`});
  // A salary requester identity must never be replaced with the holder's identity.
  // Store a separate destination label; other requests retain the original in history.
- if(target.itemType==='ADVANCE')row.bankPayeeName=r.ownerNames;else row.payeeName=r.ownerNames;
+ if(advance)row.bankPayeeName=r.ownerNames;else row.payeeName=r.ownerNames;
  r.ownerConfirmed=true;row.version=(row.version||1)+1;
 }
 
@@ -122,7 +123,7 @@ export class BankInquiryService {
     if(result.kind==='FOUND'){
      Object.assign(r,result);delete r.kind;r.status='FOUND';
      const existing=normalizeIban(row.iban||'');if(existing&&existing!==result.iban){r.status='REVIEW';r.code='IBAN_CONFLICT';r.ownerConfirmed=false;}
-     else{row.iban=result.iban;r.destinationReviewRequired=false;if(!row.bankName)row.bankName=result.bankName;r.ownerConfirmed=normalizedName(row.bankPayeeName||(j.target.itemType==='ADVANCE'?row.requesterName:row.payeeName)||'')===normalizedName(result.ownerNames);}
+     else{row.iban=result.iban;r.destinationReviewRequired=false;if(!row.bankName)row.bankName=result.bankName;r.ownerConfirmed=normalizedName(destinationRecipient(j.target.itemType,found.parent,row))===normalizedName(result.ownerNames);}
      j.status='DONE';
     }else{r.status=result.kind==='REVIEW'?'REVIEW':result.kind==='UNKNOWN'?'UNKNOWN':'ERROR';r.code=result.kind==='REVIEW'?result.code:result.kind;if(result.kind==='REVIEW')r.depositStatus=result.depositStatus;j.status=result.kind==='UNKNOWN'?'UNKNOWN':'DONE';}
     return true;

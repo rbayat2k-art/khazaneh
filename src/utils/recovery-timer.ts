@@ -1,0 +1,4 @@
+export type RecoveryClock={serverNow:number;receivedAt:number;expiresAt?:number;resendAvailableAt?:number};
+export function recoveryClock(data:any,receivedAt:number):RecoveryClock|undefined{const {serverNow,expiresAt,resendAvailableAt}=data||{};if(!Number.isFinite(serverNow)||!Number.isFinite(expiresAt)||expiresAt<serverNow||expiresAt-serverNow>180_000)return;return{serverNow,receivedAt,expiresAt,resendAvailableAt:Number.isFinite(resendAvailableAt)?resendAvailableAt:expiresAt};}
+export function recoverySeconds(clock:RecoveryClock|undefined,now:number,field:'expiresAt'|'resendAvailableAt'='expiresAt'){if(!clock||!Number.isFinite(clock[field]))return 0;return Math.max(0,Math.ceil((clock[field]!-clock.serverNow-Math.max(0,now-clock.receivedAt))/1000));}
+export function recoveryTimeLabel(seconds:number){const n=Math.max(0,Math.ceil(seconds));return`${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;}

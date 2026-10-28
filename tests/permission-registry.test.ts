@@ -4,21 +4,21 @@ import {PERMISSION_GROUPS,PERMISSION_CONTROLS,KNOWN_PERMISSION_KEYS,MENU_ENTRIES
 
 test('all main menus have their exact own card; each navigation entry and active permission has one control',()=>{
  assert.deepEqual(PERMISSION_GROUPS.map(g=>g.title),Object.values(MENU_TITLES));
- const keys=PERMISSION_CONTROLS.map(i=>i.key);assert.equal(new Set(keys).size,keys.length);assert.equal(keys.length,65);assert.equal(MENU_ENTRIES.length,40);
+ const keys=PERMISSION_CONTROLS.map(i=>i.key);assert.equal(new Set(keys).size,keys.length);assert.equal(keys.length,86);assert.equal(MENU_ENTRIES.length,50);
  for(const entry of MENU_ENTRIES)assert.ok(keys.includes(entry.permission),entry.id);
  for(const key of Object.keys(getDefaultPermissionsForRole('ADMIN')))assert.ok(KNOWN_PERMISSION_KEYS.has(key),key);
 });
 test('all/minimum presets cover inquiry, resubmission and operations without syncing retained legacy values',()=>{
  const initial={...getDefaultPermissionsForRole('REQUESTER'),canAccessApproverWorkspace:false,canAccessAccountingWorkspace:true};
  const before=JSON.stringify(initial),all=permissionPreset(initial,true),min=permissionPreset(all,false);
- assert.equal(permissionCount(all),65);for(const key of ['canManageBankInquiry','canInquireBankDetails','canConfirmBankOwner','canResubmitRevision','canSubmitSinglePayment','canManageBankAccounts','canCreateManualPayment','canCloseDailyCover','canViewReceiptArchive'] as const)assert.equal(all[key],true,key);
+ assert.equal(permissionCount(all),86);for(const key of ['canManageBankInquiry','canInquireBankDetails','canConfirmBankOwner','canResubmitRevision','canSubmitSinglePayment','canManageBankAccounts','canCreateManualPayment','canCloseDailyCover','canViewReceiptArchive','canAccessTreasuryRejected','canRejectTreasuryPayment','canRestoreTreasuryPayment'] as const)assert.equal(all[key],true,key);
  assert.equal(permissionCount(min),4);assert.equal(min.canShowTrackingAll,true);assert.equal(min.canViewRequests,true);assert.equal(min.canViewAttachments,true);assert.equal(min.canAccessSettings,true);assert.equal(min.canExecutePayment,false);assert.equal(min.canSubmitSinglePayment,false);assert.equal(min.canCreateRequest,false);
  assert.equal(all.canAccessApproverWorkspace,false);assert.equal(all.canAccessAccountingWorkspace,true);assert.equal(JSON.stringify(initial),before);
 });
-test('all legacy default roles inherit identical menu availability without storing new flags',()=>{
+test('legacy menus stay inherited; new inquiry menus explicitly default denied outside ADMIN',()=>{
  for(const role of ['ADMIN','REQUESTER','APPROVER','ACCOUNTING','TREASURY']){const p=normalizeRolePermissionSet(getDefaultPermissionsForRole(role),role),before=JSON.stringify(p),resolved=withNavigationPermissions(p);
   for(const key of Object.keys(DISPLAY_FALLBACKS) as (keyof typeof DISPLAY_FALLBACKS)[])assert.equal(resolved[key],permissionValue(p,key));
-  assert.equal(JSON.stringify(p),before);assert.equal(Object.keys(p).some(k=>k.startsWith('canShow')),false);
+  assert.equal(JSON.stringify(p),before);assert.equal(Object.keys(p).some(k=>k.startsWith('canShow')&&!k.startsWith('canShowInquiry')),false);for(const key of Object.keys(p).filter(k=>k.startsWith('canShowInquiry')))assert.equal(p[key as keyof RolePermissionSet],role==='ADMIN');
   assert.equal(menuVisible(p,'FORM_PAYMENT_SINGLE'),p.canCreatePaymentSingle);
   assert.equal(menuVisible(p,'TRACK_ALL'),Boolean(p.canAccessRequesterSection||p.canViewRequests!==false));
  }

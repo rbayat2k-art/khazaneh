@@ -3,7 +3,7 @@ import type {Express,Request,Response,NextFunction} from 'express';
 type Handler=(request:Request,response:Response)=>unknown|Promise<unknown>;
 
 /** Retain the write turn until the handler finishes, even if its client leaves. */
-export function createMutationRoutes(app:Pick<Express,'post'|'delete'>,authorize:(request:Request,response:Response)=>boolean){
+export function createMutationRoutes(app:Pick<Express,'post'|'delete'>,authorize:(request:Request,response:Response)=>boolean,execute=(request:Request,response:Response,run:()=>unknown)=>run()){
   let tail=Promise.resolve();
   let accepting=true;
   const wrap=(handler:Handler)=>(request:Request,response:Response,next:NextFunction)=>{
@@ -21,7 +21,7 @@ export function createMutationRoutes(app:Pick<Express,'post'|'delete'>,authorize
         };
         // Sessions and permissions may change while this request waits.
         if(!authorize(request,response))return;
-        await handler(request,response);
+        await execute(request,response,()=>handler(request,response));
       }finally{
         response.off('close',closed);
         // A long Promise chain must not starve response compression, sockets or timers.

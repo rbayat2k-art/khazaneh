@@ -1,3 +1,7 @@
+import {WorkflowSubmenus,hasWorkflowSubmenus,workflowMenuGroup} from './WorkflowSubmenus';
+import type {PersonnelBalanceTab,PersonnelBalanceSummary} from '../types/personnel-balance';
+import type {AccountInquiryTab,AccountInquirySummary}from'../types/account-inquiry';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Landmark,
@@ -44,6 +48,8 @@ import { getRoleLabel } from '../utils/sorting';
 import {menuVisible,visibleMenus,permissionValue} from '../utils/permission-registry';
 
 export type MainSection =
+  | 'PERSONNEL_BALANCES'
+  | 'ACCOUNT_INQUIRIES'
   | 'ADMIN_PANEL'
   | 'REQUESTER'
   | 'APPROVER'
@@ -75,6 +81,12 @@ interface SidebarNavigationProps {
     mode: 'APPROVER' | 'ACCOUNTING',
     tab: ApprovalCategoryTab
   ) => void;
+  personnelBalanceSummary?:PersonnelBalanceSummary;
+  personnelBalanceTab?:PersonnelBalanceTab;
+  onSelectPersonnelBalanceTab?:(tab:PersonnelBalanceTab)=>void;
+  accountInquirySummary?:AccountInquirySummary;
+  activeAccountInquiryTab?:AccountInquiryTab;
+  onSelectAccountInquiryTab?:(tab:AccountInquiryTab)=>void;
   activeTreasuryTab?: TreasurySubTab;
   onSelectTreasuryTab?: (tab: TreasurySubTab) => void;
   activeAdminTab?: AdminSubTab;
@@ -85,6 +97,7 @@ interface SidebarNavigationProps {
   onLogout: () => void;
   badges: {
     needsRevision: number;
+    trackingTotal:number;
     pendingApprover: number;
     pendingAccounting: number;
     pendingTreasury: number;
@@ -99,6 +112,20 @@ interface SidebarNavigationProps {
     totalAuditLogs?: number;
   };
 }
+
+
+const mainMenuColors={
+ forms:['bg-slate-50 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ tracking:['bg-gray-50 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ approver:['bg-slate-100 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ accounting:['bg-neutral-50 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ treasury:['bg-stone-100 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ reports:['bg-zinc-50 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ master:['bg-gray-100 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ users:['bg-zinc-100 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+ settings:['bg-stone-50 text-slate-700 hover:bg-slate-200','bg-slate-900 text-white hover:bg-slate-800 ring-1 ring-inset ring-slate-900'],
+} as const;
+const menuHeaderTone=(menu:keyof typeof mainMenuColors,active:boolean)=>mainMenuColors[menu][active?1:0]+' font-bold';
 
 type CollapsibleMenuKey =
   | 'REQUESTER_FORMS_MENU'
@@ -121,6 +148,10 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
   onSelectRequesterTab,
   activeApprovalCategoryTab = 'PENDING',
   onSelectApprovalCategoryTab,
+  personnelBalanceSummary,personnelBalanceTab='MINE',onSelectPersonnelBalanceTab,
+  accountInquirySummary,
+  activeAccountInquiryTab='MINE',
+  onSelectAccountInquiryTab,
   activeTreasuryTab = 'QUEUE',
   onSelectTreasuryTab,
   activeAdminTab = 'USERS',
@@ -131,6 +162,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
   onLogout,
   badges,
 }) => {
+
   const perms = useMemo(
     () => normalizeRolePermissionSet(currentUser.effectivePermissions, currentUser.role),
     [currentUser.effectivePermissions, currentUser.role]
@@ -141,14 +173,14 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
       perms.canCreatePaymentBatch ||
       perms.canCreatePaymentSingle ||
       perms.canCreateAdvanceBatch ||
-      perms.canCreateAdvanceSingle
+      perms.canCreateAdvanceSingle || hasWorkflowSubmenus(perms,'forms')
   );
 
   const nav=(id:string)=>menuVisible(perms,id);
-  const canAccessRequesterCartable = visibleMenus(perms,'REQUESTER').some(e=>e.tab==='CARTABLE');
+  const canAccessRequesterCartable = visibleMenus(perms,'REQUESTER').some(e=>e.tab==='CARTABLE')||hasWorkflowSubmenus(perms,'tracking');
 
-  const canAccessApprover = visibleMenus(perms,'APPROVER').length>0;
-  const canAccessAccounting = visibleMenus(perms,'ACCOUNTING').length>0;
+  const canAccessApprover = visibleMenus(perms,'APPROVER').length>0||hasWorkflowSubmenus(perms,'approver');
+  const canAccessAccounting = visibleMenus(perms,'ACCOUNTING').length>0||hasWorkflowSubmenus(perms,'accounting');
 
   const canAccessTreasury = visibleMenus(perms,'TREASURY').length>0;
 
@@ -182,17 +214,20 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
       activeAdminTab === 'RECOVERY' ||
       activeAdminTab === 'AUDIT');
 
+  const workflowGroup=workflowMenuGroup(activeSection,activeSection==='PERSONNEL_BALANCES'?personnelBalanceTab:activeAccountInquiryTab);
+  const isApproverActive=activeSection==='APPROVER'||workflowGroup==='approver',isAccountingActive=activeSection==='ACCOUNTING'||workflowGroup==='accounting';
+  const workflowLinks=(group:'forms'|'tracking'|'approver'|'accounting')=><WorkflowSubmenus group={group} permissions={perms} section={activeSection} inquiryTab={activeAccountInquiryTab} balanceTab={personnelBalanceTab} inquirySummary={accountInquirySummary} balanceSummary={personnelBalanceSummary} onInquiry={tab=>{onSelectSection('ACCOUNT_INQUIRIES');onSelectAccountInquiryTab?.(tab);onCloseMobile();}} onBalance={tab=>{onSelectSection('PERSONNEL_BALANCES');onSelectPersonnelBalanceTab?.(tab);onCloseMobile();}}/>;
   const isRequesterFormsActive =
-    activeSection === 'REQUESTER' && activeRequesterFormTab !== 'CARTABLE';
+    activeSection === 'REQUESTER' && activeRequesterFormTab !== 'CARTABLE'||workflowGroup==='forms';
   const isRequesterCartableActive =
-    activeSection === 'REQUESTER' && activeRequesterFormTab === 'CARTABLE';
+    activeSection === 'REQUESTER' && activeRequesterFormTab === 'CARTABLE'||workflowGroup==='tracking';
 
   // State for collapsible dropdown menus
   const [openMenus, setOpenMenus] = useState<Record<CollapsibleMenuKey, boolean>>(() => ({
     REQUESTER_FORMS_MENU: activeSection === 'REQUESTER',
     REQUESTER_CARTABLE_MENU: activeSection === 'REQUESTER',
-    APPROVER_MENU: activeSection === 'APPROVER',
-    ACCOUNTING_MENU: activeSection === 'ACCOUNTING',
+    APPROVER_MENU: isApproverActive,
+    ACCOUNTING_MENU: isAccountingActive,
     TREASURY_MENU: activeSection === 'TREASURY',
     REPORTS_MENU:activeSection==='REPORTS',
     MASTER_DATA_MENU: isMasterDataSubTab,
@@ -202,15 +237,16 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
   // Automatically expand the relevant menu group when activeSection or activeRequesterFormTab changes
   useEffect(() => {
-    if (activeSection === 'REQUESTER') {
+    if(workflowGroup){const key=workflowGroup==='forms'?'REQUESTER_FORMS_MENU':workflowGroup==='tracking'?'REQUESTER_CARTABLE_MENU':workflowGroup==='approver'?'APPROVER_MENU':'ACCOUNTING_MENU';setOpenMenus(prev=>({...prev,[key]:true}));}
+    else if (activeSection === 'REQUESTER') {
       if (activeRequesterFormTab === 'CARTABLE') {
         setOpenMenus((prev) => ({ ...prev, REQUESTER_CARTABLE_MENU: true }));
       } else {
         setOpenMenus((prev) => ({ ...prev, REQUESTER_FORMS_MENU: true }));
       }
-    } else if (activeSection === 'APPROVER') {
+    } else if (isApproverActive) {
       setOpenMenus((prev) => ({ ...prev, APPROVER_MENU: true }));
-    } else if (activeSection === 'ACCOUNTING') {
+    } else if (isAccountingActive) {
       setOpenMenus((prev) => ({ ...prev, ACCOUNTING_MENU: true }));
     } else if (activeSection === 'TREASURY') {
       setOpenMenus((prev) => ({ ...prev, TREASURY_MENU: true }));
@@ -230,7 +266,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     } else if (activeSection === 'SETTINGS') {
       setOpenMenus((prev) => ({ ...prev, SETTINGS_MENU: true }));
     }
-  }, [activeSection, activeRequesterFormTab, activeAdminTab]);
+  }, [activeSection, activeRequesterFormTab, activeAdminTab,workflowGroup]);
 
   const toggleMenu = (key: CollapsibleMenuKey) => {
     setOpenMenus((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -387,16 +423,12 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                 type="button"
                 onClick={() => toggleMenu('REQUESTER_FORMS_MENU')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  isRequesterFormsActive
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('forms',isRequesterFormsActive)
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <CreditCard
-                    className={`w-4 h-4 shrink-0 ${
-                      isRequesterFormsActive ? 'text-amber-400' : 'text-slate-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>ثبت درخواست‌های مالی و پرسنلی</span>
                 </div>
@@ -411,6 +443,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
               {openMenus.REQUESTER_FORMS_MENU && (
                 <div className="p-1.5 bg-white border-t border-slate-100 space-y-0.5">
+                  {workflowLinks('forms')}
                   {perms.canCreateAdvanceSingle !== false && (
                     <button
                       type="button"
@@ -424,7 +457,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     >
                       <div className="flex items-center gap-2">
                         <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                        <span>مساعده حقوق تکی</span>
+                        <span>مساعده حقوق تکی (برای خودم)</span>
                       </div>
                     </button>
                   )}
@@ -442,7 +475,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                     >
                       <div className="flex items-center gap-2">
                         <Users className="w-3.5 h-3.5 text-slate-500" />
-                        <span>مساعده گروهی پرسنل</span>
+                        <span>مساعده گروهی (برای سایر افراد)</span>
                       </div>
                     </button>
                   )}
@@ -501,25 +534,19 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
                   }
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  isRequesterCartableActive
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('tracking',isRequesterCartableActive)
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <Clock
-                    className={`w-4 h-4 shrink-0 ${
-                      isRequesterCartableActive ? 'text-amber-400' : 'text-indigo-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>کارتابل پیگیری درخواست‌ها</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {badges.needsRevision > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white font-mono-num">
-                      {badges.needsRevision}
-                    </span>
-                  )}
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white font-mono-num" aria-label={'تعداد موارد قابل پیگیری: '+badges.trackingTotal} title="مجموع موارد زیرمنوهای مجاز؛ فیلترهای مالی و سوابق استعلام دوباره شمرده نمی‌شوند.">
+                    {badges.trackingTotal.toLocaleString('fa-IR')}
+                  </span>
                   {openMenus.REQUESTER_CARTABLE_MENU ? (
                     <ChevronDown className="w-4 h-4 opacity-80" />
                   ) : (
@@ -530,6 +557,7 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
 
               {openMenus.REQUESTER_CARTABLE_MENU && (
                 <div className="p-1.5 bg-white border-t border-slate-100 space-y-0.5">
+                  {workflowLinks('tracking')}
                   <button
                     type="button"
 onClick={() => handleRequesterSubClick('CARTABLE', 'ALL')}
@@ -654,16 +682,12 @@ onClick={() => handleRequesterSubClick('CARTABLE', 'NEEDS_REVISION')}
                 type="button"
                 onClick={() => toggleMenu('APPROVER_MENU')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  activeSection === 'APPROVER'
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('approver',isApproverActive)
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <CheckCircle2
-                    className={`w-4 h-4 shrink-0 ${
-                      activeSection === 'APPROVER' ? 'text-blue-400' : 'text-blue-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>کارتابل تایید سرپرست واحد</span>
                 </div>
@@ -683,6 +707,7 @@ onClick={() => handleRequesterSubClick('CARTABLE', 'NEEDS_REVISION')}
 
               {openMenus.APPROVER_MENU && (
                 <div className="p-1.5 bg-white border-t border-slate-100 space-y-0.5">
+                  {workflowLinks('approver')}
                   <button
                     type="button"
 onClick={() => handleApprovalSubClick('APPROVER', 'PENDING')}
@@ -764,16 +789,12 @@ onClick={() => handleApprovalSubClick('APPROVER', 'ALL_MY_RECORDS')}
                 type="button"
                 onClick={() => toggleMenu('ACCOUNTING_MENU')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  activeSection === 'ACCOUNTING'
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('accounting',isAccountingActive)
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <ShieldCheck
-                    className={`w-4 h-4 shrink-0 ${
-                      activeSection === 'ACCOUNTING' ? 'text-emerald-400' : 'text-emerald-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>کارتابل بررسی مالی حسابداری</span>
                 </div>
@@ -793,6 +814,7 @@ onClick={() => handleApprovalSubClick('APPROVER', 'ALL_MY_RECORDS')}
 
               {openMenus.ACCOUNTING_MENU && (
                 <div className="p-1.5 bg-white border-t border-slate-100 space-y-0.5">
+                  {workflowLinks('accounting')}
                   <button
                     type="button"
 onClick={() => handleApprovalSubClick('ACCOUNTING', 'PENDING')}
@@ -874,16 +896,12 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                 type="button"
                 onClick={() => toggleMenu('TREASURY_MENU')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  activeSection === 'TREASURY'
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('treasury',activeSection === 'TREASURY')
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <Landmark
-                    className={`w-4 h-4 shrink-0 ${
-                      activeSection === 'TREASURY' ? 'text-amber-400' : 'text-amber-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>خزانه‌داری و عملیات پرداخت</span>
                 </div>
@@ -947,6 +965,7 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                     </button>
                   )}
 
+                  {nav('TREASURY_REJECTED')&&<button type="button" onClick={()=>handleTreasurySubClick('REJECTED')} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] cursor-pointer text-right ${activeSection==='TREASURY'&&activeTreasuryTab==='REJECTED'?'bg-rose-50 text-rose-950 font-bold border-r-2 border-rose-600':'text-slate-600 hover:bg-slate-50'}`}><AlertCircle className="w-3.5 h-3.5 text-rose-600"/><span>پرداخت‌های ردشده</span></button>}
                   {perms.canAccessTreasuryCompleted !== false && (
                     <button
                       type="button"
@@ -1039,7 +1058,7 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                         <span>بایگانی فیش‌ها</span>
                       </div>
                       {badges.totalReceipts > 0 && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800 font-mono-num">
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 font-mono-num">
                           {badges.totalReceipts}
                         </span>
                       )}
@@ -1051,23 +1070,19 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
           )}
 
           {/* 4. COLLAPSIBLE MENU: MASTER DATA MANAGEMENT (اطلاعات پایه) */}
-          {perms.canAccessTreasuryReports&&<div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden"><button type="button" onClick={()=>toggleMenu('REPORTS_MENU')} aria-expanded={openMenus.REPORTS_MENU} className={'w-full flex items-center justify-between px-3 py-2.5 text-right font-bold '+(activeSection==='REPORTS'?'bg-slate-900 text-white':'bg-slate-50/70 text-slate-800')}><span className="flex items-center gap-2"><History className="w-4 h-4"/>گزارش‌ها و خروجی‌ها</span><ChevronDown className="w-4 h-4"/></button>{openMenus.REPORTS_MENU&&<div className="p-2"><button type="button" onClick={()=>{onSelectSection('REPORTS');onCloseMobile();}} className={'w-full px-2.5 py-2 rounded-lg text-xs text-right '+(activeSection==='REPORTS'?'bg-blue-50 text-blue-950 font-bold':'text-slate-600 hover:bg-slate-50')}>گزارش جامع درخواست‌ها و پرداخت‌ها</button></div>}</div>}
+          {perms.canAccessTreasuryReports&&<div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden"><button type="button" onClick={()=>toggleMenu('REPORTS_MENU')} aria-expanded={openMenus.REPORTS_MENU} className={'w-full flex items-center justify-between px-3 py-2.5 text-right font-bold '+menuHeaderTone('reports',activeSection==='REPORTS')}><span className="flex items-center gap-2"><History className="w-4 h-4"/>گزارش‌ها و خروجی‌ها</span><ChevronDown className="w-4 h-4"/></button>{openMenus.REPORTS_MENU&&<div className="p-2"><button type="button" onClick={()=>{onSelectSection('REPORTS');onCloseMobile();}} className={'w-full px-2.5 py-2 rounded-lg text-xs text-right '+(activeSection==='REPORTS'?'bg-blue-50 text-blue-950 font-bold':'text-slate-600 hover:bg-slate-50')}>گزارش جامع درخواست‌ها و پرداخت‌ها</button></div>}</div>}
           {canAccessMasterDataMenu && (
             <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
               <button
                 type="button"
                 onClick={() => toggleMenu('MASTER_DATA_MENU')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  isMasterDataSubTab
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('master',isMasterDataSubTab)
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <Database
-                    className={`w-4 h-4 shrink-0 ${
-                      isMasterDataSubTab ? 'text-sky-400' : 'text-sky-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>مدیریت اطلاعات پایه</span>
                 </div>
@@ -1095,7 +1110,7 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                         <span>تعریف شرکت‌ها و سازمان‌ها</span>
                       </div>
                       {typeof badges.totalCompanies === 'number' && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 font-mono-num">
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 font-mono-num">
                           {badges.totalCompanies}
                         </span>
                       )}
@@ -1117,7 +1132,7 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                         <span>تعریف واحدهای سازمانی</span>
                       </div>
                       {typeof badges.totalDepartments === 'number' && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 font-mono-num">
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 font-mono-num">
                           {badges.totalDepartments}
                         </span>
                       )}
@@ -1139,7 +1154,7 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                         <span>تعریف مراکز هزینه</span>
                       </div>
                       {typeof badges.totalCostCenters === 'number' && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 font-mono-num">
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 font-mono-num">
                           {badges.totalCostCenters}
                         </span>
                       )}
@@ -1175,16 +1190,12 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                 type="button"
                 onClick={() => toggleMenu('USERS_ACCESS_MENU')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  isUsersAccessSubTab
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('users',isUsersAccessSubTab)
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <UserCheck
-                    className={`w-4 h-4 shrink-0 ${
-                      isUsersAccessSubTab ? 'text-purple-400' : 'text-purple-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>مدیریت کاربران و دسترسی‌ها</span>
                 </div>
@@ -1219,7 +1230,7 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                         <span>فهرست و مدیریت کاربران</span>
                       </div>
                       {typeof badges.totalUsers === 'number' && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 font-mono-num">
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 font-mono-num">
                           {badges.totalUsers}
                         </span>
                       )}
@@ -1280,7 +1291,7 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                         <span>تاریخچه امنیتی و تغییرات دسترسی</span>
                       </div>
                       {typeof badges.totalAuditLogs === 'number' && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 font-mono-num">
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 font-mono-num">
                           {badges.totalAuditLogs}
                         </span>
                       )}
@@ -1298,16 +1309,12 @@ onClick={() => handleApprovalSubClick('ACCOUNTING', 'ALL_MY_RECORDS')}
                 type="button"
                 onClick={() => toggleMenu('SETTINGS_MENU')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer text-right ${
-                  activeSection === 'SETTINGS'
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'bg-slate-50/70 text-slate-800 hover:bg-slate-100 font-bold'
+                  menuHeaderTone('settings',activeSection === 'SETTINGS')
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <Settings
-                    className={`w-4 h-4 shrink-0 ${
-                      activeSection === 'SETTINGS' ? 'text-blue-400' : 'text-slate-600'
-                    }`}
+                    className="w-4 h-4 shrink-0"
                   />
                   <span>تنظیمات و حساب کاربری</span>
                 </div>

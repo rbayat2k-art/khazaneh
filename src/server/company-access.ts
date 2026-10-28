@@ -1,6 +1,7 @@
 import type {TreasuryDatabaseState,User} from '../types/treasury';
 import {getUserRoles} from '../utils/user-roles';
 import {immutableScalarArray} from './financial-selection';
+import {manualCompanyIdentity} from '../utils/manual-company';
 
 /** Current role membership is authoritative; an empty/missing list grants none. */
 export function companyPolicy(viewer:User,db:TreasuryDatabaseState){
@@ -20,7 +21,16 @@ export function companyPolicy(viewer:User,db:TreasuryDatabaseState){
   };
   const financial=(row:any)=>entity(row,row?.requesterId);
   const bank=(id:unknown)=>admin||typeof id==='string'&&entity(banks.get(id));
-  const manual=(row:any)=>admin||Boolean(row&&(row.sourceBankAccountId?bank(row.sourceBankAccountId):entity(row.sourceAccountSnapshot||{},row.createdById)));
+  const manual=(row:any)=>{
+    if(admin)return true;if(!row)return false;
+    const identity=manualCompanyIdentity(row);
+    if(identity){
+      if(Object.prototype.hasOwnProperty.call(row,'companyId'))return typeof row.companyId==='string'&&!!row.companyId.trim()&&entity({companyId:row.companyId});
+      return !!identity.company.trim()&&has(identity.company);
+    }
+    // Retain exact legacy ownership; this is deliberately NOT the shared source-bank policy.
+    return row.sourceBankAccountId?bank(row.sourceBankAccountId):entity(row.sourceAccountSnapshot||{},row.createdById);
+  };
   const role=(key:unknown)=>{const config=db.roleConfigs?.find(r=>r.role===key);return admin||key!=='ADMIN'&&!!config&&Array.isArray(config.allowedCompanies)&&config.allowedCompanies.every(has);};
   // Shared/global settings cannot be partitioned by an arbitrary record ID.
   const all=admin||Boolean(db.companies?.length&&db.companies.every(c=>has(c.id)||has(c.name)));

@@ -81,6 +81,7 @@ test('gateway protects pages/API/files, rejects wrong hosts and cross-site acces
     const login = await fetch(base + '/__staging/login', { method: 'POST', body: 'password=SYNTHETIC-GATE-TEST', redirect: 'manual' });
     assert.equal(login.status, 303); const cookie = login.headers.get('set-cookie');
     assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/);
+    assert.ok(cookie.startsWith(`shahrah_staging_${config.port}=`));
     assert.equal((await fetch(base + '/api/state', { headers: { cookie: cookie.split(';')[0] } })).status, 503);
     assert.equal(received, undefined, 'No request may reach an unverified backend listener');
     ready = true;
@@ -90,4 +91,18 @@ test('gateway protects pages/API/files, rejects wrong hosts and cross-site acces
     assert.match(response.headers.get('content-security-policy'), /connect-src 'self'/);
     assert.equal((await fetch(base + '/__staging/control/stop', { method: 'POST' })).status, 403);
   } finally { active.closeAllConnections(); backend.closeAllConnections(); await Promise.all([new Promise(r => active.close(r)), new Promise(r => backend.close(r))]); }
+});
+
+test('parallel private staging gateways keep separate cookies on the same loopback host',async()=>{
+ const active=[];
+ try{
+  for(let i=0;i<2;i++){
+   const probe=http.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
+   const gateway=makeGateway({port,backendPort:port+1,gateHash:sha('SYNTHETIC-GATE-TEST'),controlNonce:'synthetic'},()=>{});await new Promise(r=>gateway.listen(port,'127.0.0.1',r));
+   const base=`http://127.0.0.1:${port}`,response=await fetch(base+'/__staging/login',{method:'POST',body:'password=SYNTHETIC-GATE-TEST',redirect:'manual'});assert.equal(response.status,303);active.push({gateway,base,cookie:response.headers.get('set-cookie').split(';')[0]});
+  }
+  assert.notEqual(active[0].cookie.split('=')[0],active[1].cookie.split('=')[0]);
+  const cookie=active.map(g=>g.cookie).join('; ');
+  for(const g of active)assert.equal((await fetch(g.base+'/api/state',{headers:{cookie}})).status,503,'Each gate retains its own session; unready upstream stays closed');
+ }finally{await Promise.all(active.map(({gateway})=>{gateway.closeAllConnections();return new Promise(r=>gateway.close(r));}));}
 });

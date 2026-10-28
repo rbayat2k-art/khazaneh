@@ -1,0 +1,7 @@
+import type {User,TreasuryDatabaseState,RequestApprovalType} from '../types/treasury';import type {AuthResolver} from './open-work';import type {ApprovalChain} from '../utils/request-approval-chain';import {initialRequestApprover,requestApproverError} from './request-approval-routing';
+/** Only a new command may resolve profile routes; history never resolves them again. */
+export function initialApprovalChain(owner:User,type:RequestApprovalType,db:TreasuryDatabaseState,auth:AuthResolver):ReturnType<typeof initialRequestApprover>&{approvalChain?:ApprovalChain}{
+ const first=initialRequestApprover(owner,type,db,auth);if(first.error||!first.id)return first;const steps:{userId:string;name:string}[]=[],seen=new Set([owner.id]);let next:string|null=first.id;
+ while(next){if(seen.has(next))return {...first,error:'حلقه یا خودتأییدی در مسیر سرپرست‌ها وجود دارد؛ تنظیم مسیر را اصلاح کنید.'};if(steps.length>=256)return {...first,error:'طول مسیر تأیید بیش از حد مجاز است.'};seen.add(next);const reviewer=db.users.find(u=>u.id===next),error=requestApproverError(owner,reviewer,db,auth);if(error)return {...first,error};steps.push({userId:reviewer!.id,name:reviewer!.name});const onward=initialRequestApprover(reviewer!,type,db,auth);if(onward.error)return {...first,error:onward.error};next=onward.id;}
+ const approvalChain:ApprovalChain|undefined=steps.length>1?{schemaVersion:1,type,steps,cursor:0,round:0,decisions:[]}:undefined;return {...first,approvalChain};
+}

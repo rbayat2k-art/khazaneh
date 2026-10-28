@@ -1,5 +1,9 @@
 # ذخیرهٔ سورس جاری شاهراه در GitHub — v50
 
+## snapshot مستقل Production v57b —۲۰۲۶/۱۰/۲۵
+
+به درخواست صریح مالک، نسخهٔ واقعی فعلی دامنه در [Release v57b](https://github.com/rbayat2k-art/khazaneh/releases/tag/v57b) محفوظ شد؛ commit=`7e5b48e19834524a53e53cb057301a311425691c`، شاخه `codex/production-v57b-snapshot`، tagv57b، manifest=`309c04c79a22058188487f07b6a283e3793e0497e01054f6252ca0f680a19b21`. parent تاریخچه فعلی حفظ و main/checkout dirty مالک تغییر نکرد. source کامل hash-matched از snapshot v57b است، نه v60؛۲۸۹فایل عمومی و۳۸فایل بستهٔ frozen. assetSHA=`cacc01410432b45c192099bd8276bf98b51d7cd2bf06485ef1687aeba332e0ab` با digest GitHub تطبیق شد. private data/vault/password/session خارج ماند؛ این GitHub save نه بکاپ DB و نه deploy است. [رکورد و محدودیت‌ها](../operations/release-v60-gate.md) مرجع‌اند؛ انتشار v60 به‌علت دو یافته بازتولیدشده متوقف شد. مجوز این snapshot، مجوز دائمی commit/push تغییرهای آینده نیست.
+
 ## تحویل v50 — ۲۰۲۶/۱۰/۲۳
 
 مالک ذخیرهٔ آخرین نسخه آزموده‌شده و انتشار مشروط همین تحویل را مجاز کرد. v28 و tag/asset قبلی حفظ شوند؛ force-push/بازنویسی تاریخچه مجاز نیست. محدوده عمومی اکنون `tools/staging/` را نیز شامل می‌شود، چون package.json وbuildبه آن وابسته‌اند؛ فقط سورس عمومی ابزار،نه staging.json/ACCESS/vault/data. [کنترل v50](../operations/release-v50-readiness.md) وmanifestv50هویت جدید را نگه می‌دارند. نبودن privateops درGitآگاهانه است؛ از آننبایدکپیdataset/credential بسازید.

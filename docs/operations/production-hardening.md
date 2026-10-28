@@ -1,4 +1,36 @@
-# تثبیت و ظرفیت عملیاتی خزانه — checkpoint به‌روزشده ۲۰۲۶/۱۰/۲۴
+## Production جاری v90b — PASS / DEPLOYED، ۲۰۲۶/۱۰/۲۷
+
+[رکورد انتشار استعلام حساب، پرداخت پرسنلی و نقش‌ها](release-v90-role-access.md)؛ manifest=a488d55addb8ca11c06898243b4fe6fa55f4464570053c38e345f936be3e1504؛ بکاپ۶۶فایل وrestoreمستقل، حفظ رمزها/ACLقدیمی/شرکت/سقف/چهارمسیر، فقط۱۸مجوزجدیدمصوب و استعلام مستقیم افراد بدون سرپرست. مهاجرت durableV90-1، Linux CURRENT با ثبت تازه و۳۵۰audit و حفظACL/مسیر PASS؛ build/QA/مرورگر/دامنه/health/پایش کوتاه PASS. خرید منتشر نشد و۱۵۷ورودیcanonical آن محفوظ است؛ checkoutخرید مستقیماًdeployنشود. recovery فقطCURRENT+binaryسازگارv90b، بدونrestoreقدیمی یاdowngrade؛ بدونcleanup/commit/push/بانک‌وپیامک واقعی/فشار تازه. بخش‌های پایین تاریخی‌اند.
+
+# تثبیت و ظرفیت عملیاتی خزانه — checkpoint به‌روزشده ۲۰۲۶/۱۰/۲۶
+
+## Production جاری v69 — PASS / DEPLOYED
+
+[رکورد انتشار متن، آیکون و عرض فرم](release-v69-ui-polish.md)؛ manifest=96c6fa147a48f329028a62c361d13daf40628fb4e93cb1fa61caf91a51e3ac37، بازگشایی 26/10/2026, 12:20:31 تهران. همانcandidateمصوب؛ فقطUI/آیکون،backend/storage عینv66،بکاپ60فایل وrestoreمستقل data/code/vault و برابری تمامstate/رمز/ACL/نشست/تنظیماتPASS؛health/مرورگر/پایشکوتاهPASS. خرید فقطStage55120 و157ورودی آن محفوظ؛ پیش از نشرخریدv64/v65/v66/v69 ادغام/آزمودهشوند. بدونmigration/reset/cleanup/commit/push؛recoveryفقطCURRENT+binaryسازگار،بدونrestoreقدیمی رویثبتجدید. مواردجاریپایین تاریخچه‌اند.
+
+## Production جاری v66 — PASS / DEPLOYED
+
+[رکورد انتشار نام‌گذاری مساعده](release-v66-advance-self-copy.md)؛ manifest=dbdde4002c3b6c7bc2788a6cc816e425a047829629ecb7f9b7266c4b39b5cb30، بازگشایی 26/10/2026, 11:28:02 تهران. همان candidate پذیرفته‌شده؛۲component UI، نام ثابت صاحب پرتال و تفکیک خود/دیگران؛ verified build و مرورگر Stage/public، بکاپ۶۰فایل و restore مستقل data/code/vault، برابری تمام state/رمز/ACL/نشست/تنظیمات و health/پایش کوتاه PASS. backend executable text همانv65d با اختلاف comment مسیر است؛ full suite تازه لازم/اجرا نشد. source مستقل advance-request-copy-v66؛ خرید و۱۵۷ورودی‌اش و Stageهای قبلی محفوظ‌اند؛ خرید پیش از نشر،v64/v65/v66 ادغام/آزموده شود. بدونmigration/reset/cleanup/commit/push؛ recovery فقط CURRENT+binaryسازگار، بدونrestoreقدیمی رویثبتجدید. بخش‌های «جاری» پایین سابقه‌اند.
+
+## Production جاری v65d — PASS / DEPLOYED
+
+[رکورد انتشار و CURRENT recovery](release-v65-approval-chain.md)؛ manifest=`1c8668c7b7f535cd9d81e4a72b8de17fadd068bfa81cfe2ad28c7212443686d9`، بازگشایی 26/10/2026, 11:05:33 تهران.۵۲۶تست هرadapter روی backend عین نهایی،۱۶تست تازه هرadapter، مرورگر هم‌نامی/مکمل/۴مسیر وdesktop/mobile،Linux CURRENT و بکاپ۶۰فایل/restore مستقل وvault PASS؛ تمامstate/رمز/ACL/نشست/تنظیمات دقیقاً برابر،بدون افزودنpermission/backfill/profile. دامنه وwww/health/asset/پایش کوتاه PASS. خرید فقط Stage55120؛ canonical checkout آن مستقیم منتشر نشود و پیش از نشر،v64b/v65d ادغام و آزموده شوند. سورس انتشار درworktree مستقلrequest-approval-chain-v65 است. پس از admission فقط CURRENT DB/vault باbinaryسازگارv65d،بدونrestoreقدیمی یاdowngrade؛ بدونcleanup/commit/push. بخش‌های «جاری» پایین سابقه‌اند.
+
+## Production جاری v64b — PASS / DEPLOYED،۲۰۲۶/۱۰/۲۶
+
+مرجع جاری این worktree، رکورد `C:/Users/reza/Desktop/khazaneh/docs/operations/release-v64b.md` و checkpoint بالای همان production-hardening canonical است؛ manifest=`58058ff10fc128106ec7a927fcf16439394f83b66fa18d470bd74cdddf8864c5`. آخرین final-evidence درwork/release-v64b-20261026 است. داده/رمز/ACL/نشست/vaultمحفوظ، فقط۱۸کلید مصوب افزایشی؛ backup/restore/health PASS. خرید فقطStage؛ recoveryبعدنصب فقطCURRENTDB/vault وbinaryسازگارv64b. checkpointهای پایین تاریخی‌اند.
+
+## checkpoint فعال Production v62b — PASS / DEPLOYED،۲۰۲۶/۱۰/۲۵
+
+[رکورد انتشار واقعی و recovery](release-v62b.md)، manifest=`0e1d7676bd13a94e64709d19cd02316d926800c086159cd03bf718ed1c9951ee`؛release=`/home/shahrahsystem_dev/khazaneh-release-0e1d7676bd13`. بازگشایی۱۳:۳۶:۳۳UTC،بکاپ۵۸فایل/restoreداخل‌وخارج‌سرور وvaultجاری،startupکلstateبرابر،رمز/نقش/اطلاعات/تنظیماتاتصال محفوظ وhealth/publicbrowser PASS. فقطADMINاصلی با دلیل بهکاربر فعال غیرمدیر وارد می‌شود،اختیارمقصد و دو هویت درcommit محفوظ است. رکوردبالامرجعplan وpublisher وhelperهاست؛downgradeبهv61bباchildممنوع،بازگشتپس‌نصبفقطroll-forward CURRENTDB/vault باv62b. هیچStagekey/data منتقلنشد؛فشار/عملیاتمالی/بانک‌وپیامکواقعی وپاک‌سازی/commit/push NOT RUN. checkpointهای فعال پایین تاریخی‌اند.
+
+## checkpoint فعال Production v61b — PASS / DEPLOYED،۲۰۲۶/۱۰/۲۵
+
+[رکورد انتشار و کنترل واقعی](release-v61b.md)، manifest=`0efae2b038c6f983a44e39de0f0c04517cf46d04795da08c70deeea07f8c29be`؛ بازگشایی08:49:39UTC، بکاپ/restore مستقل خارج سرور، حفظ تمام داده/رمز/نقش/کلیدها و health/مرورگر عمومی PASS. v62 ورود مدیریتی فقط [Stage](staging-v62-admin-user-entry.md) است و دامنه را تغییر نداده؛ checkpointهای فعال پایین تاریخی‌اند.
+
+## checkpoint فعال v57b — PASS / DEPLOYED
+
+[کاتالوگ بانک‌ها و قالب اکسل](release-v57-bank-catalog.md)، manifest=`309c04c79a22058188487f07b6a283e3793e0497e01054f6252ca0f680a19b21`، بازگشایی17:11:04UTC. هر۴۲۱تست SQLite/JSON و۹مسیر مرورگر PASS؛ بکاپ تازه۵۸فایل و restore مستقل داخل/خارج سرور، raw startup و همهٔ رمز/نقش/نشست/کلیدها برابر، health/public browser/template هم‌هش و سایت باز است. schema۱ ثابت؛ import واقعی/عملیات مالی زنده/فشار تازه NOT RUN. مشکل کش نسخه میانی با URL محتوایی قالب حل شد. بازگشت با DB/vault جاری و شواهد بازاستفاده‌شده در رکورد مرجع؛ v56 عمداً فقط Stage مانده و موارد پایین تاریخچه‌اند.
 
 ## checkpoint فعال v55 — PASS / DEPLOYED
 

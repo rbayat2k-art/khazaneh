@@ -239,6 +239,9 @@ export function getNotificationEventMeta(eventType: NotificationEventType): {
   badgeClass: string;
 } {
   switch (eventType) {
+    case 'PERSONNEL_BALANCE':return {label:'پرداخت پرسنلی',badgeClass:'bg-blue-100 text-blue-900 border-blue-300'};
+    case 'ACCOUNT_INQUIRY':
+      return {label:'مانده و صورت‌حساب',badgeClass:'bg-blue-100 text-blue-900 border-blue-300'};
     case 'REQUEST_RESUBMITTED':
       return {
         label: 'ارسال مجدد درخواست',

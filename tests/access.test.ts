@@ -12,6 +12,7 @@ import {assessBankImport} from '../src/utils/bank-account-import';
 import {SqliteRecords} from '../src/server/sqlite-records';
 import {StateSyncClient} from '../src/utils/state-sync';
 import {requestFixture} from './request-fixture.cjs';
+import {stoppedLegacyFixture} from './stopped-legacy-fixture';
 
 const root = process.env.TREASURY_TEST_DIR;
 if (!root || path.resolve(root) === path.resolve('data')) throw new Error('Set TREASURY_TEST_DIR to a disposable directory outside the live data directory.');
@@ -186,11 +187,11 @@ test('bank-account save rejects invalid card and IBAN types without writing acco
 });
 
 test('canonical bank formatting alone never invalidates a legacy supervisor approval on resubmission',async()=>{
-  const result=await api('/requests/resubmit','requester',{itemType:'PAYMENT',requestId:'TEST-legacy-bank-revision',accountOrCard:'0000000000000001',iban:'IR'+'0'.repeat(23)+'1'});assert.equal(result.status,200);assert.equal(result.data.item.status,'Pending_Accounting');assert.equal(result.data.item.invalidatedPriorApproval,false);assert.equal(result.data.item.approvedBySupervisorUserId,'approver');
+  const result=await api('/requests/resubmit','requester',{itemType:'PAYMENT',requestId:'TEST-legacy-bank-revision',expectedVersion:1,accountOrCard:'0000000000000001',iban:'IR'+'0'.repeat(23)+'1'});assert.equal(result.status,200);assert.equal(result.data.item.status,'Pending_Accounting');assert.equal(result.data.item.invalidatedPriorApproval,false);assert.equal(result.data.item.approvedBySupervisorUserId,'approver');
 });
 
 test('repairing a legacy numeric card succeeds and invalidates its prior supervisor approval',async()=>{
-  const result=await api('/requests/resubmit','requester',{itemType:'PAYMENT',requestId:'TEST-legacy-numeric-bank',accountOrCard:'1234567890123456',iban:'IR'+'0'.repeat(23)+'1'});
+  const result=await api('/requests/resubmit','requester',{itemType:'PAYMENT',requestId:'TEST-legacy-numeric-bank',expectedVersion:1,accountOrCard:'1234567890123456',iban:'IR'+'0'.repeat(23)+'1'});
   assert.equal(result.status,200);assert.equal(result.data.item.accountOrCard,'1234567890123456');assert.equal(result.data.item.status,'Pending_Approver');assert.equal(result.data.item.invalidatedPriorApproval,true);assert.ok(!result.data.item.approvedBySupervisorUserId);
 });
 
@@ -297,6 +298,22 @@ async function securityPaymentFixture(kind='PAYMENT',allChildren=true){
   return {...f,sourceBankAccountId,payload:{sourceBankAccountId,items:[{type:f.parent.items?'BATCH':kind,id:f.parent.id}],bankRefNumber:'TEST-NO-TRANSFER',idempotencyKey:'TEST-'+crypto.randomUUID()}};
 }
 
+test('Windows transient JSON replacement commits one payment/receipt and replay cannot duplicate that durable result',async()=>{
+  const f=await securityPaymentFixture(),sharing=path.join(root!,'test-json-sharing.json'),inject=!sqlite&&process.platform==='win32';
+  if(inject)fs.writeFileSync(sharing,JSON.stringify({phase:'PAYMENT',key:f.payload.idempotencyKey,remaining:2,code:'EBUSY',attempts:0,hashes:[]}),{flag:'wx'});
+  const before=JSON.parse(readStore()),made=await api('/treasury/execute-payment','treasury',f.payload);assert.equal(made.status,200);
+  if(inject){const errors=JSON.parse(fs.readFileSync(sharing,'utf8'));assert.equal(errors.remaining,0);assert.ok(errors.attempts>=3&&errors.attempts<=6);assert.equal(new Set(errors.hashes).size,1);fs.unlinkSync(sharing);}
+  const after=JSON.parse(readStore()),paid=after.paymentRequests.find((p:any)=>p.id===f.parent.id);assert.equal(paid.paymentHistory.length,1);assert.equal(after.receiptArchives.length,before.receiptArchives.length+1);assert.equal(paid.paidAmountSoFar,paid.approvedAmount??paid.amount);const replay=await api('/treasury/execute-payment','treasury',f.payload);assert.equal(replay.status,403,'settled rows retain the existing stage guard');assert.ok(JSON.parse(readStore()).receiptArchives.some((r:any)=>r.id===made.data.receipt.id));assert.equal(JSON.parse(readStore()).receiptArchives.length,after.receiptArchives.length);
+});
+
+test('permanent Windows JSON replacement fails closed and does not release a writer turn before the next payment',async()=>{
+  const first=await securityPaymentFixture(),second=await securityPaymentFixture(),sharing=path.join(root!,'test-json-sharing.json'),before=JSON.parse(readStore()),inject=!sqlite&&process.platform==='win32';
+  if(inject)fs.writeFileSync(sharing,JSON.stringify({phase:'PAYMENT',key:first.payload.idempotencyKey,remaining:20,code:'EACCES',attempts:0,hashes:[]}),{flag:'wx'});else fs.writeFileSync(path.join(root!,'test-fail-next-commit'),'TEST',{flag:'wx'});
+  const responses=await Promise.all([api('/treasury/execute-payment','treasury',first.payload),api('/treasury/execute-payment','treasury',second.payload)]);assert.deepEqual(responses.map(r=>r.status),[500,200]);if(inject){const faults=JSON.parse(fs.readFileSync(sharing,'utf8'));assert.equal(faults.attempts,6);assert.equal(new Set(faults.hashes).size,1);fs.unlinkSync(sharing);}
+  const after=JSON.parse(readStore());assert.deepEqual(after.paymentRequests.find((p:any)=>p.id===first.parent.id),before.paymentRequests.find((p:any)=>p.id===first.parent.id));assert.equal(after.receiptArchives.length,before.receiptArchives.length+1);assert.equal(after.paymentRequests.find((p:any)=>p.id===second.parent.id).paymentHistory.length,1);
+  const retry=await api('/treasury/execute-payment','treasury',first.payload);assert.equal(retry.status,200);const final=JSON.parse(readStore());assert.equal(final.paymentRequests.find((p:any)=>p.id===first.parent.id).paymentHistory.length,1);assert.equal(final.receiptArchives.length,before.receiptArchives.length+2);
+});
+
 test('security payment rejects conflicting target aliases and cannot pay a child awaiting accounting',async()=>{
   const f=await securityPaymentFixture('BATCH_PAYMENT',false),[ready,pending]=f.parent.items;
   const before=readStore(),item={type:'BATCH_ITEM',batchId:f.parent.id,id:pending.id,requestId:f.parent.id,rowId:ready.id};
@@ -358,8 +375,9 @@ test('security OTP never persists a recovery code even when external integration
 
 test('committed snapshots avoid repeated disk decoding without caching stale authorization',async()=>{
   await api('/state','requester');
-  const marker=path.join(root!,'test-count-db-reads'),count=path.join(root!,'test-db-read-count');fs.writeFileSync(marker,'TEST');fs.writeFileSync(count,'');
-  try{assert.equal((await api('/state','requester')).status,200);assert.equal(fs.readFileSync(count,'utf8').length,0);fs.writeFileSync(count,'');assert.equal((await api('/payment-requests','requester',{amount:12000,payeeName:'TEST request-owned snapshot'})).status,200);assert.equal(fs.readFileSync(count,'utf8').length,0);}finally{fs.unlinkSync(marker);}
+  const marker=path.join(root!,'test-count-db-reads'),count=path.join(root!,'test-db-read-count'),decodes=path.join(root!,'test-db-decode-count');fs.writeFileSync(marker,'TEST');fs.writeFileSync(count,'');fs.writeFileSync(decodes,'');
+  const check=()=>{assert.equal(fs.readFileSync(decodes,'utf8').length,0,'unchanged committed data must not be decoded again');const reads=fs.readFileSync(count,'utf8').length;if(sqlite)assert.equal(reads,0,'SQLite must retain its no-history-read fast path');else assert.ok(reads>0,'JSON freshness must inspect current content, not metadata alone');fs.writeFileSync(count,'');};
+  try{assert.equal((await api('/state','requester')).status,200);check();assert.equal((await api('/payment-requests','requester',{amount:12000,payeeName:'TEST request-owned snapshot'})).status,200);check();}finally{fs.unlinkSync(marker);}
 });
 
 test('a durable command response uses its published snapshot without recopying historical draft arrays',async()=>{
@@ -376,7 +394,7 @@ test('unsafe upload URLs and active SVG reject every new-document write atomical
  for(const [route,body]of [['/advance-requests',{amount:12000,reason:'TEST',attachments:[file]}],['/payment-requests',{amount:12000,payeeName:'TEST',attachments:[file]}],['/batch-payments',{title:'TEST',items:[{amount:12000,payeeName:'TEST',attachments:[file]}]}]] as const){await api('/state','admin');const before=readStore();assert.equal((await api(route,'requester',body)).status,400);assertStoreUnchanged(before);}
  const f=await securityPaymentFixture(),before=readStore();
  for(const url of ['javascript:alert(1)','https://example.invalid/TEST.png','data:text/html;base64,PHNjcmlwdD4=','data:image/svg+xml;base64,'+Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>').toString('base64')]){assert.equal((await api('/treasury/execute-payment','treasury',{...f.payload,receiptFileUrl:url})).status,400);assertStoreUnchanged(before);}
- const r=await reviewFixture('PAYMENT','APPROVER');assert.equal((await api('/review/row-action','approver',{...r.command,action:'RETURN_FOR_REVISION',returnReason:'TEST document'})).status,200);await api('/state','admin');const held=readStore();assert.equal((await api('/requests/resubmit','requester',{itemType:'PAYMENT',requestId:r.parent.id,amount:12000,newAttachments:[file]})).status,400);assertStoreUnchanged(held);
+ const r=await reviewFixture('PAYMENT','APPROVER');assert.equal((await api('/review/row-action','approver',{...r.command,action:'RETURN_FOR_REVISION',returnReason:'TEST document'})).status,200);await api('/state','admin');const held=readStore();assert.equal((await api('/requests/resubmit','requester',{itemType:'PAYMENT',requestId:r.parent.id,expectedVersion:r.command.expectedVersion,amount:12000,newAttachments:[file]})).status,400);assertStoreUnchanged(held);
 });
 
 test('generated receipt escapes authored XML while retaining the original financial record',async()=>{
@@ -392,7 +410,7 @@ test('rejection is reviewer-owned, stage-bound and recoverable for every single 
     const unchanged=readStore();assert.equal((await api('/review/row-action','admin',{...command,expectedStatus:'Rejected',action:'APPROVE'})).status,403);
     assert.equal((await api('/review/row-action',reviewer,{...command,expectedStatus:'Rejected',reviewStage:stage==='APPROVER'?'ACCOUNTING':'APPROVER',action:'APPROVE'})).status,409);
     assert.equal((await api('/review/row-action',reviewer,{...command,action:'APPROVE'})).status,409);
-    assert.equal((await api('/requests/resubmit','requester',{...command,amount:15000,description:'TEST bypass'})).status,403);
+    assert.equal((await api('/requests/resubmit','requester',{itemType:command.itemType,requestId:command.requestId,rowId:command.rowId,expectedVersion:command.expectedVersion,amount:15000,description:'TEST bypass'})).status,403);
     assert.equal((await api('/requests/edit-submitted','requester',{itemType:command.itemType,requestId:command.requestId,rowId:command.rowId,expectedVersion:2,changes:{amount:16000}})).status,409);
     assert.equal(readStore(),unchanged);
     const approved=await api('/review/row-action',reviewer,{...command,expectedStatus:'Rejected',action:'APPROVE'});assert.equal(approved.status,200,approved.data.error);const saved=savedReviewRow(approved.data.state,command);assert.equal(saved.status,stage==='APPROVER'?'Pending_Accounting':'Pending_Treasury');assert.equal(saved.amount,12000);assert.ok(saved.reviewRejection.resolvedAt);assert.equal(saved.auditHistory.filter((a:any)=>a.decision==='REJECT').length,1);
@@ -405,7 +423,7 @@ test('rejected requests can only be closed with a reason and remain archived, ne
     const {command,reviewer}=await reviewFixture(kind,stage);assert.equal((await api('/review/row-action',reviewer,{...command,action:'REJECT',returnReason:'TEST hold'})).status,200);
     const before=readStore();assert.equal((await api('/review/row-action',reviewer,{...command,expectedStatus:'Rejected',action:'CLOSE_REJECTED'})).status,400);assert.equal(readStore(),before);
     const closed=await api('/review/row-action',reviewer,{...command,expectedStatus:'Rejected',action:'CLOSE_REJECTED',returnReason:'TEST final closure'});assert.equal(closed.status,200,closed.data.error);const row=savedReviewRow(closed.data.state,command);assert.equal(row.status,'Closed');assert.equal(row.reviewRejection.closeReason,'TEST final closure');assert.ok(row.auditHistory.some((a:any)=>a.decision==='CLOSE_REJECTED'));
-    const final=readStore();assert.equal((await api('/review/row-action',reviewer,{...command,expectedStatus:'Closed',action:'APPROVE'})).status,409);assert.equal((await api('/requests/resubmit','requester',{...command,amount:12000})).status,403);
+    const final=readStore();assert.equal((await api('/review/row-action',reviewer,{...command,expectedStatus:'Closed',action:'APPROVE'})).status,409);assert.equal((await api('/requests/resubmit','requester',{itemType:command.itemType,requestId:command.requestId,rowId:command.rowId,expectedVersion:command.expectedVersion,amount:12000})).status,403);
     assert.equal((await api('/treasury/execute-payment','treasury',{items:[{type:command.itemType,id:command.rowId||command.requestId,...(command.itemType==='BATCH_ITEM'?{batchId:command.requestId}:{})}]})).status,403);assert.equal(readStore(),final);
   }
 });
@@ -434,7 +452,8 @@ test('rejection recovery rechecks current permission, limit, scope and assignmen
   assert.equal((await api('/review/row-action','accounting',{...command,action:'REJECT',returnReason:'TEST permission hold'})).status,200);
   const resolve={...command,expectedStatus:'Rejected',action:'APPROVE'},role=(await api('/state','admin')).data.roleConfigs.find((r:any)=>r.role==='ACCOUNTING');
   for(const edit of [{permissions:{...role.permissions,canApprove:false}},{approvalLimitRial:10},{accessScope:'SELF_ONLY'}]){
-    assert.equal((await api('/roles/save','admin',{...role,...edit})).status,200);
+    const unchanged=readStore();assert.equal((await api('/roles/save','admin',{...role,...edit})).status,409);assert.equal(readStore(),unchanged);
+    child=await stoppedLegacyFixture(child,root!,sqlite,base,db=>{db.roleConfigs=db.roleConfigs.map((r:any)=>r.role===role.role?{...role,...edit}:r);});
     const before=readStore();assert.equal((await api('/review/row-action','accounting',resolve)).status,403);assert.equal(readStore(),before);
     assert.equal((await api('/roles/save','admin',role)).status,200);
   }
@@ -534,7 +553,7 @@ test('combined reviewer is stage-bound and assignment-bound; can explicitly perf
   const action={itemType:'ADVANCE',requestId:row.id,reviewStage:'APPROVER',action:'RETURN_FOR_REVISION',returnReason:'TEST clarify'};
   assert.equal((await api('/review/row-action','combined',action)).status,200);
   assert.equal(JSON.parse(readStore()).advanceRequests.find((r:any)=>r.id===row.id).returnedByRole,'APPROVER');
-  assert.equal((await api('/requests/resubmit','assigned',{itemType:'ADVANCE',requestId:row.id,amount:100,description:'TEST clarified'})).status,200);
+  assert.equal((await api('/requests/resubmit','assigned',{itemType:'ADVANCE',requestId:row.id,expectedVersion:1,amount:100,description:'TEST clarified'})).status,200);
   assert.equal((await api('/review/row-action','combined',{...action,action:'APPROVE'})).status,200);
   assert.equal((await api('/review/row-action','combined',{...action,action:'APPROVE'})).status,409);
   assert.equal((await api('/approver/review','combined',{requestId:row.id,requestType:'ADVANCE',action:'APPROVE'})).status,403);
@@ -603,7 +622,7 @@ test('requests without supervisor route directly to accounting, including batche
     const body={itemType,requestId:row.id,rowId};
     assert.equal((await api('/review/row-action','approver',{...body,action:'APPROVE'})).status,403);
     assert.equal((await api('/review/row-action','accounting',{...body,action:'RETURN_FOR_REVISION',returnReason:'TEST accounting correction'})).status,200);
-    assert.equal((await api('/requests/resubmit','direct',{...body,amount:200,description:'TEST sensitive correction'})).status,200);
+    assert.equal((await api('/requests/resubmit','direct',{...body,expectedVersion:1,amount:200,description:'TEST sensitive correction'})).status,200);
     const db=JSON.parse(readStore());
     const result=itemType==='BATCH_ITEM'?db.batchPayments.find((r:any)=>r.id===row.id).items[0]:[...db.advanceRequests,...db.paymentRequests].find((r:any)=>r.id===row.id);
     assert.equal(result.status,'Pending_Accounting');
@@ -627,7 +646,9 @@ test('legacy batch review enforces each targeted row amount before any mutation'
 
 test('unsupported legacy update actions never become returns for a read-only reviewer', async () => {
   const role=(await api('/state','admin')).data.roleConfigs.find((r:any)=>r.role==='ACCOUNTING');
-  assert.equal((await api('/roles/save','admin',{...role,permissions:{...role.permissions,canApprove:false,canEditAmount:false,canReturnForRevision:false}})).status,200);
+  const readOnlyRole={...role,permissions:{...role.permissions,canApprove:false,canEditAmount:false,canReturnForRevision:false}};
+  assert.equal((await api('/roles/save','admin',readOnlyRole)).status,409);
+  child=await stoppedLegacyFixture(child,root!,sqlite,base,db=>{db.roleConfigs=db.roleConfigs.map((r:any)=>r.role===role.role?readOnlyRole:r);});
   const row=(await api('/advance-requests','direct',{amount:100,reason:'TEST read-only legacy'})).data.item;
   const before=readStore();
   assert.equal((await api('/accounting/review','accounting',{requestId:row.id,requestType:'ADVANCE',action:'UPDATE_AMOUNT_COMMENT'})).status,403);
@@ -635,16 +656,18 @@ test('unsupported legacy update actions never become returns for a read-only rev
   assert.equal((await api('/roles/save','admin',role)).status,200);
 });
 
-test('removing supplementary supervisor role requires safe reassignment; existing session loses permission immediately', async () => {
+test('removing supplementary supervisor role requires settlement first; replacement cannot bypass the open-work guard', async () => {
   const combined=(await api('/state','admin')).data.users.find((u:any)=>u.personnelCode==='combined');
   const pending=(await api('/advance-requests','assigned',{amount:100,reason:'TEST pending reassignment'})).data.item;
   const before=readStore();
   assert.equal((await api('/users/save','admin',{...combined,additionalRoles:['REQUESTER']})).status,409);
   assert.equal(readStore(),before);
-  assert.equal((await api('/users/save','admin',{...combined,additionalRoles:['REQUESTER'],replacementSupervisorId:'approver'})).status,200);
+  assert.equal((await api('/users/save','admin',{...combined,additionalRoles:['REQUESTER'],replacementSupervisorId:'approver'})).status,409);
+  assert.equal(readStore(),before);
+  child=await stoppedLegacyFixture(child,root!,sqlite,base,db=>{db.users=db.users.map((u:any)=>u.id===combined.id?{...u,additionalRoles:['REQUESTER']}:u);});
   const after=JSON.parse(readStore());
-  assert.equal(after.advanceRequests.find((r:any)=>r.id===pending.id).supervisorId,'approver');
-  assert.equal(after.users.find((u:any)=>u.personnelCode==='assigned').supervisorId,'approver');
+  assert.equal(after.advanceRequests.find((r:any)=>r.id===pending.id).supervisorId,combined.id);
+  assert.equal(after.users.find((u:any)=>u.personnelCode==='assigned').supervisorId,combined.id);
   assert.equal((await api('/auth/me','combined')).data.user.effectivePermissions.canAccessApproverCartable,false);
   assert.equal((await api('/review/row-action','combined',{itemType:'ADVANCE',requestId:pending.id,action:'APPROVE'})).status,403);
 });
@@ -729,7 +752,9 @@ test('direct-accounting batch amendments are version-protected through legacy an
 test('unsupported bulk actions cannot stamp an untouched request for a read-only reviewer',async()=>{
   const role=(await api('/state','admin')).data.roleConfigs.find((r:any)=>r.role==='APPROVER');
   const row=(await api('/advance-requests','requester',{amount:10000,reason:'TEST unsupported bulk'})).data.item;
-  assert.equal((await api('/roles/save','admin',{...role,permissions:{...role.permissions,canApprove:false,canEditAmount:false,canReturnForRevision:false}})).status,200);
+  const readOnlyRole={...role,permissions:{...role.permissions,canApprove:false,canEditAmount:false,canReturnForRevision:false}};
+  assert.equal((await api('/roles/save','admin',readOnlyRole)).status,409);
+  child=await stoppedLegacyFixture(child,root!,sqlite,base,db=>{db.roleConfigs=db.roleConfigs.map((r:any)=>r.role===role.role?readOnlyRole:r);});
   try {
     const before=readStore();
     for(const action of ['UPDATE_AMOUNT_COMMENT','RETURN','UPDATE_AND_APPROVE'])assert.equal((await api('/review/bulk-action','approver',{action,items:[{itemType:'ADVANCE',requestId:row.id,expectedVersion:1}]})).status,403);
@@ -827,7 +852,7 @@ test('scoped approver sees assigned records, cannot approve foreign ones, honors
 test('return, owner correction, resubmit, approver and accounting approval form a complete API journey', async () => {
   assert.equal((await api('/review/row-action','approver',{itemType:'ADVANCE',requestId,action:'RETURN_FOR_REVISION',returnReason:'Complete test description'})).status,200);
   assert.equal((await api('/requests/resubmit','other',{itemType:'ADVANCE',requestId,amount:12000})).status,403);
-  assert.equal((await api('/requests/resubmit','requester',{itemType:'ADVANCE',requestId,amount:12000,description:'Corrected'})).status,200);
+  assert.equal((await api('/requests/resubmit','requester',{itemType:'ADVANCE',requestId,expectedVersion:1,amount:12000,description:'Corrected'})).status,200);
   const sent = await api('/state','approver');
   assert.equal(sent.data.advanceRequests.find((r:any)=>r.id===requestId).status,'Pending_Approver');
   assert.equal((await api('/review/row-action','accounting',{itemType:'ADVANCE',requestId,action:'APPROVE'})).status,403);
@@ -930,7 +955,7 @@ test('real API enforces company scope, role union, empty revocation and authoriz
     }
     db.notifications.push({id:'SYN-HIDDEN-NOTICE',recipientUserId:id,requestId:'SYN-PAY-B',body:'TEST outside company',readByUserIds:[]});writeStore(JSON.stringify(db));
     const login=await api('/auth/login',undefined,{personnelCode:id,password});assert.equal(login.status,200);tokens[id]=login.data.token;
-    let state=(await api('/state',id)).data;assert.ok(state.paymentRequests.some((r:any)=>r.id==='SYN-PAY-A'));assert.ok(!state.paymentRequests.some((r:any)=>r.id==='SYN-PAY-B'));assert.ok(!state.companyBankAccounts.some((r:any)=>r.id==='SYN-BANK-B'));assert.ok(!state.notifications.some((r:any)=>r.id==='SYN-HIDDEN-NOTICE'));
+    let state=(await api('/state',id)).data;assert.ok(state.paymentRequests.some((r:any)=>r.id==='SYN-PAY-A'));assert.ok(!state.paymentRequests.some((r:any)=>r.id==='SYN-PAY-B'));assert.ok(state.companyBankAccounts.some((r:any)=>r.id==='SYN-BANK-B'),'source banks are shared, not a financial visibility grant');assert.ok(!state.notifications.some((r:any)=>r.id==='SYN-HIDDEN-NOTICE'));
     assert.equal((await api('/notifications/read',id,{notificationId:'SYN-HIDDEN-NOTICE'})).status,403);
     const command={items:[{type:'PAYMENT',id:'SYN-PAY-B'}],sourceBankAccountId:'SYN-BANK-A',paymentAmount:50,idempotencyKey:'SYN-COMP-PAY',bankRefNumber:'TEST-COMPANY'};
     assert.equal((await api('/treasury/execute-payment',id,command)).status,403);

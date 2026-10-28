@@ -1,0 +1,4 @@
+import{inquiryFail}from'./account-inquiry-policy';
+import{jalaliEpoch}from'../utils/jalali-date';
+export function inquiryText(v:unknown,label:string,required=true,max=4000){if(v===undefined&&!required)return '';if(typeof v!=='string'||v.trim().length>max||required&&!v.trim())inquiryFail(400,'INVALID_INPUT',`${label} را به‌درستی وارد کنید.`);return(v as string).trim();}
+export function inquiryDate(v:unknown,required=false){if(!v){if(required)inquiryFail(400,'DATE_REQUIRED','تاریخ مبنای مانده لازم است.');return undefined;}if(typeof v!=='string')inquiryFail(400,'INVALID_DATE','تاریخ معتبر وارد کنید.');const epoch=/^\d{4}-\d{2}-\d{2}$/.test(v as string)?Date.parse(v+'T12:00:00Z'):jalaliEpoch(v as string);if(!Number.isFinite(epoch))inquiryFail(400,'INVALID_DATE','تاریخ معتبر وارد کنید.');const iso=new Date(epoch).toISOString().slice(0,10);if((v as string).includes('-')&&iso!==v)inquiryFail(400,'INVALID_DATE','تاریخ معتبر وارد کنید.');return iso;}

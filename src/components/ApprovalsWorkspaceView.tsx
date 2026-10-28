@@ -1,3 +1,5 @@
+import {AccountInquiryRequestButton}from'./AccountInquiryContext';
+import {currentSupervisorId,currentSupervisorName} from '../utils/request-approval-chain';
 import {CostCenterSelect} from './CostCenterSelect';
 import {RialInput} from './RialInput';
 import {RequestSummaryHeaders,RequestSummaryRow,REQUEST_SUMMARY_COLUMN_COUNT} from './RequestSummaryTable';
@@ -376,6 +378,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
 
   // Helper to extract this reviewer's real decision history on a specific row
   const extractMyDecisionHistory = (params: {
+    approvalChain?: import('../utils/request-approval-chain').ApprovalChain;
     status: RequestStatus;
     version: number;
     auditHistory: ItemAuditEntry[];
@@ -418,6 +421,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
     } = params;
 
     const isMyAuditEntry = (entry: ItemAuditEntry) => {
+      if(params.approvalChain)return entry.actorId===currentUser.id;
       if (entry.actorId && entry.actorId === currentUser.id) return true;
       if (entry.changedBy && entry.changedBy === currentUser.name) return true;
       if (currentUser.role === 'ADMIN' && entry.stage === mode) return true;
@@ -464,7 +468,8 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         latestApp.version ??
         (mode === 'APPROVER' ? approverApprovedVersion : accountingApprovedVersion) ??
         1;
-      const isInvalidated =
+      const activeChainDecision=mode==='APPROVER'&&params.approvalChain?.decisions.some(d=>d.round===params.approvalChain!.round&&d.actorId===currentUser.id);
+      const isInvalidated = activeChainDecision?false:
         Boolean(latestApp.invalidatedByVersion) ||
         (status === 'Needs_Revision' && returnedByRole !== 'TREASURY') ||
         (mode === 'APPROVER' && status === 'Pending_Approver' && version > appVer) ||
@@ -484,7 +489,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         approvedVersion: appVer,
         isInvalidatedByLaterRevision: isInvalidated,
       };
-    } else if (mode === 'APPROVER') {
+    } else if (mode === 'APPROVER'&&!params.approvalChain) {
       const passedSupervisorStage =
         status === 'Pending_Accounting' ||
         status === 'Pending_Treasury' ||
@@ -614,7 +619,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
           status: itemStatus,
           reviewRejection: it.reviewRejection,
           hasSupervisorStage: Boolean(b.supervisorId || it.approvedBySupervisorUserId),
-          supervisorName: effApproverName,
+          supervisorName: currentSupervisorName(b,it)||effApproverName,
           approverNote: it.approverNote || b.approverNote,
           accountingName: effAccountingName || 'حسابداری',
           accountingNote: it.accountingNote || b.accountingNote,
@@ -625,11 +630,12 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         });
 
         const decisionInfo = extractMyDecisionHistory({
+          approvalChain:it.approvalChain,
           status: itemStatus,
           version: ver,
           auditHistory: audit,
-          supervisorId: b.supervisorId,
-          supervisorName: b.supervisorName,
+          supervisorId: currentSupervisorId(b,it),
+          supervisorName: currentSupervisorName(b,it),
           approverId: effApproverId,
           approverName: effApproverName,
           approverDecidedAt: effApproverAt,
@@ -667,8 +673,8 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
           requesterName: b.requesterName,
           department: b.department,
           company: b.company,
-          supervisorId: b.supervisorId,
-          supervisorName: b.supervisorName,
+          supervisorId: currentSupervisorId(b,it),
+          supervisorName: currentSupervisorName(b,it),
           amount: it.amount,
           initialAmount: it.initialAmount ?? it.amount,
           approvedAmount: it.approvedAmount ?? it.amount,
@@ -733,7 +739,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         status: p.status,
         reviewRejection: p.reviewRejection,
         hasSupervisorStage: Boolean(p.supervisorId || p.approvedBySupervisorUserId),
-        supervisorName: effApproverName,
+        supervisorName: currentSupervisorName(p)||effApproverName,
         approverNote: p.approverNote,
         accountingName: effAccountingName,
         accountingNote: p.accountingNote,
@@ -744,11 +750,12 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
       });
 
       const decisionInfo = extractMyDecisionHistory({
+        approvalChain:p.approvalChain,
         status: p.status,
         version: ver,
         auditHistory: audit,
-        supervisorId: p.supervisorId,
-        supervisorName: p.supervisorName,
+        supervisorId: currentSupervisorId(p),
+        supervisorName: currentSupervisorName(p),
         approverId: effApproverId,
         approverName: effApproverName,
         approverDecidedAt: effApproverAt,
@@ -783,8 +790,8 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         requesterName: p.requesterName,
         department: p.department,
         company: p.company,
-        supervisorId: p.supervisorId,
-        supervisorName: p.supervisorName,
+        supervisorId: currentSupervisorId(p),
+        supervisorName: currentSupervisorName(p),
         amount: p.amount,
         initialAmount: p.initialAmount ?? p.amount,
         approvedAmount: p.approvedAmount ?? p.amount,
@@ -848,7 +855,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         status: a.status,
         reviewRejection: a.reviewRejection,
         hasSupervisorStage: Boolean(a.supervisorId || a.approvedBySupervisorUserId),
-        supervisorName: effApproverName,
+        supervisorName: currentSupervisorName(a)||effApproverName,
         approverNote: a.approverNote,
         accountingName: effAccountingName,
         accountingNote: a.accountingNote,
@@ -859,11 +866,12 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
       });
 
       const decisionInfo = extractMyDecisionHistory({
+        approvalChain:a.approvalChain,
         status: a.status,
         version: ver,
         auditHistory: audit,
-        supervisorId: a.supervisorId,
-        supervisorName: a.supervisorName,
+        supervisorId: currentSupervisorId(a),
+        supervisorName: currentSupervisorName(a),
         approverId: effApproverId,
         approverName: effApproverName,
         approverDecidedAt: effApproverAt,
@@ -898,8 +906,8 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
         requesterName: a.requesterName,
         department: a.department,
         company: a.company,
-        supervisorId: a.supervisorId,
-        supervisorName: a.supervisorName,
+        supervisorId: currentSupervisorId(a),
+        supervisorName: currentSupervisorName(a),
         amount: a.amount,
         initialAmount: a.initialAmount ?? a.amount,
         approvedAmount: a.approvedAmount ?? a.amount,
@@ -1283,7 +1291,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="جستجو بر اساس نام ذینفع، کد رهگیری، شرح، مبلغ..."
+              placeholder="جستجو بر اساس نام پرسنل، گیرنده وجه، بابت، کد یا مبلغ..."
               className="w-full pr-10 pl-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:bg-white"
             />
           </div>
@@ -1390,6 +1398,7 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
       )}
 
       {/* 2. Bulk Action Bar (Only in PENDING tab when rows are selected) */}
+      {mode==='APPROVER'&&categoryTab==='PENDING'&&selectedRows.length>0&&<div className="flex justify-end"><AccountInquiryRequestButton company={selectedRows[0].company} targets={selectedRows.map(row=>({itemType:row.itemType,requestId:row.requestId,rowId:row.rowId,expectedVersion:row.version||1,expectedStatus:row.status}))}/></div>}
       {categoryTab === 'PENDING' && selectedUids.length > 0 && (
         <section className="bg-slate-900 text-white p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
           <div className="flex items-center gap-3">
@@ -1490,8 +1499,10 @@ export const ApprovalsWorkspaceView: React.FC<ApprovalsWorkspaceViewProps> = ({
                   return (
                     <RequestSummaryRow key={row.uid} target={{kind:row.itemType,id:row.requestId,rowId:row.rowId}} index={idx+1} selection={categoryTab==='PENDING'?<input type="checkbox" aria-label="انتخاب ردیف" checked={isChecked} onChange={()=>handleToggleSelectRow(row.uid)}/>:undefined} className={isChecked?'bg-sky-50/70':''}>
                         <div className="flex flex-wrap items-center justify-center gap-1">
+                          {mode==='APPROVER'&&<AccountInquiryRequestButton company={row.company} disabled={isBusy} allowCreate={categoryTab==='PENDING'} targets={[{itemType:row.itemType,requestId:row.requestId,rowId:row.rowId,expectedVersion:row.version||1,expectedStatus:row.status}]}/>}
                           {categoryTab === 'PENDING' && (
                             <>
+
                               {/* Quick Approve */}
                               <button
                                 type="button"

@@ -1,3 +1,4 @@
+import {SmsRemindersEditor} from './SmsRemindersEditor';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Building2,
@@ -31,6 +32,7 @@ import type {
 import { normalizePersianText } from '../utils/sorting';
 import {nextMasterDataCode} from '../utils/master-data-codes';
 import {MasterDataBulkDialog} from './MasterDataBulkDialog';
+import {SmsTemplatesEditor}from'./SmsTemplatesEditor';
 
 export type MasterDataSubTab = 'COMPANIES' | 'DEPARTMENTS' | 'COST_CENTERS';
 
@@ -323,7 +325,7 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
     if (res.ok) {
       setTestResult({
         ok: true,
-        message: `پیامک تست با موفقیت به درگاه ارسال شد (وضعیت: ${res.status || 'SENT'}).`,
+        message: `پیامک آزمایشی توسط سرویس پذیرفته شد؛ تحویل به گوشی هنوز تأیید نشده است.`,
         details: res.providerResponse,
       });
     } else {
@@ -398,6 +400,8 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
           </div>
         )}
 
+        {smsConfig&&<SmsTemplatesEditor config={smsConfig} onSave={onSaveSmsConfig}/>}
+        {smsConfig&&<SmsRemindersEditor config={smsConfig} onSave={onSaveSmsConfig}/>}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Configuration Form */}
           <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4">
@@ -415,15 +419,16 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
               </div>
               <span
                 className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                  smsConfig?.enabled
+                  smsConfig?.runtimeStatus?.ready
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                     : 'bg-slate-100 text-slate-700 border border-slate-300'
                 }`}
               >
-                {smsConfig?.enabled ? 'درگاه فعال است' : 'درگاه غیرفعال است'}
+                {smsConfig?.runtimeStatus?.ready ? (smsConfig.runtimeStatus.mode==='LIVE'?'ارسال فعال است':'فقط آزمون مدیر') : smsConfig?.enabled?'تنظیمات فعال؛ ارتباط آماده نیست':'درگاه غیرفعال است'}
               </span>
             </div>
 
+            {smsConfig?.runtimeStatus&&<p role="status" className="p-3 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-xl">{smsConfig.runtimeStatus.reason}</p>}
             <form onSubmit={handleSmsConfigSubmit} className="space-y-4">
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
                 <div>
@@ -458,7 +463,7 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
                       if (nextProv === 'KAVENEGAR') {
                         setSmsApiUrl('https://api.kavenegar.com/v1/{API_KEY}/sms/send.json');
                       } else if (nextProv === 'FARAZ_SMS') {
-                        setSmsApiUrl('https://api2.ippanel.com/api/v1/sms/send/webservice/single');
+                        setSmsApiUrl('https://api.iranpayamak.com/ws/v1/sms/simple');
                       } else if (nextProv === 'MELIPAYAMAK') {
                         setSmsApiUrl('https://rest.payamak-panel.com/api/SendSMS/SendSMS');
                       }
@@ -466,7 +471,7 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white"
                   >
                     <option value="KAVENEGAR">کاوه‌نگار (Kavenegar REST API)</option>
-                    <option value="FARAZ_SMS">فراز اس‌ام‌اس (IPPanel Edge API)</option>
+                    <option value="FARAZ_SMS">فراز اس‌ام‌اس (IPPanel)</option>
                     <option value="MELIPAYAMAK">ملی‌پیامک (MeliPayamak REST)</option>
                     <option value="CUSTOM_REST">وب‌سرویس اختصاصی سازمانی (Custom POST JSON)</option>
                   </select>
@@ -1472,3 +1477,4 @@ export const AdminMasterDataAndSmsSection: React.FC<AdminMasterDataAndSmsSection
     </div>
   );
 };
+

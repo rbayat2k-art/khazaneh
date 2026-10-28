@@ -1,3 +1,4 @@
+import{destinationRecipient}from'./financial-party';
 import * as XLSX from 'xlsx';
 import type {
   AdvanceRequest,
@@ -13,6 +14,7 @@ import type {
 import { getStatusLabel, getPriorityLabel } from './sorting';
 import {requestTimeFields,type RequestTimeFields} from './record-time';
 import {inquiryReportFields} from './bank-inquiry';
+import {manualCompanyIdentity} from './manual-company';
 
 // Excel rounds numeric cells after 15 significant digits. Keep larger integer
 // rials as explicit text; ordinary bank/report amounts retain numeric cells.
@@ -383,8 +385,8 @@ export function buildUnifiedTreasuryItems(
     );
     const isBatchStatusMatch = targetStatuses.includes(b.status);
 
-    if (isBatchStatusMatch || matchingSubItems.length > 0) {
-      const effectiveItems = matchingSubItems.length > 0 ? matchingSubItems : b.items || [];
+    if (matchingSubItems.length > 0) {
+      const effectiveItems = matchingSubItems;
       const effectiveAmount = effectiveItems.reduce(
         (sum, it) => sum + (it.approvedAmount ?? it.amount),
         0
@@ -572,7 +574,7 @@ export function buildUnifiedTreasuryItems(
         typeLabel: 'مساعده حقوق پرسنل',
         trackingCode: a.trackingCode,
         title: `مساعده ${a.requestedMonth} — ${a.requesterName}`,
-        payeeName: a.bankPayeeName||a.requesterName,
+        payeeName: destinationRecipient('ADVANCE',a),
         requesterName: a.requesterName,
         requesterPersonnelCode: a.requesterPersonnelCode,
         department: a.department,
@@ -637,7 +639,7 @@ export function buildUnifiedTreasuryItems(
           requesterName: m.orderedBy,
           requesterPersonnelCode: '-',
           department: 'مدیریت / دستور مستقیم',
-          company: m.sourceAccountSnapshot?.company || 'هلدینگ مرکزی آریا',
+          company: manualCompanyIdentity(m)?.company ?? m.sourceAccountSnapshot?.company ?? 'هلدینگ مرکزی آریا',
           costCenter: m.orderedBy,
           departmentOrCenter: m.orderedBy,
           description: m.description,

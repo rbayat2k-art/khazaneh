@@ -1,13 +1,25 @@
+import {RecoveryOtpChallenges} from './src/server/recovery-otp';
+import {initializePersonnelBalances} from './src/server/personnel-balance-schema';
+import {installPersonnelBalances} from './src/server/personnel-balances';
+import{destinationRecipient}from'./src/utils/financial-party';
+import {installAccountInquiries,initializeAccountInquiries,type InquiryFinancialFinalizer} from './src/server/account-inquiries';
+import {inquiryRouteError,accountInquiryUserReferenced} from './src/server/account-inquiry-policy';
+import {chainNotifications} from './src/server/chain-notifications';
 import express from 'express';
 import {parseReportFilters,buildFinancialReportAsync,financialReportPage,reportError} from './src/utils/financial-report';
 import {financialReportState,reportSourceStillVisible} from './src/server/financial-report';
+import {prepareTreasuryExport} from './src/server/treasury-export';
 import compression from 'compression';
 import {freeze} from 'immer';
 import {createMutationRoutes} from './src/server/mutation-queue';
+import {installTreasuryRejection} from './src/server/treasury-rejection';
+import {resolvePortalSession,impersonationRequestError,publicImpersonation,withImpersonationAction,stampImpersonatedCommit,installAdminImpersonation} from './src/server/admin-impersonation';
+import {ApprovalReminderService,reminderConfigError} from './src/server/approval-reminders';
 import {installBankInquiry} from './src/server/bank-inquiry-runtime';
 import {stopServer,PendingWork} from './src/server/shutdown';
 import {StateSync} from './src/server/state-sync';
 import {CommittedJson} from './src/server/committed-json';
+import {replaceJsonFileSync} from './src/server/json-atomic-replace';
 import {SqliteRecords} from './src/server/sqlite-records';
 import {STORE_LOCK_NAME} from './src/server/owner-lock';
 import {companyPolicy} from './src/server/company-access';
@@ -28,7 +40,9 @@ import { applySubmittedChanges, markReviewStarted, validateSubmittedChanges } fr
 import {activeRequestProjection,publicBatch,markRequesterDeleted} from './src/utils/request-deletion';
 import {bankFieldsError,normalizedBankFields,bankIdentifierChanged} from './src/utils/bank-identifiers';
 import {treasuryInput,validPaymentAllocation} from './src/server/treasury-input';
-import {privateSmsEvent,safeSmsLog,readSmsProviderBody} from './src/server/sms-security';
+import {privateSmsEvent,safeSmsLog,maskSmsPhone} from './src/server/sms-security';
+import {smsRuntime,smsEventEnabled,smsContract,sendFarazSms} from './src/server/sms-transport';
+import {smsTemplatesError,renderSmsTemplate} from './src/utils/sms-templates';
 import {reviewEditError,reviewEditEntry} from './src/utils/review-edit';
 import {prepareReviewCostCenter,applyReviewCostCenter,ReviewCostCenterError} from './src/server/review-cost-center';
 import { allocateMasterDataCode, immutableMasterDataCode, retainMasterDataHighWater, createMasterDataRow } from './src/server/master-data';
@@ -37,6 +51,12 @@ import {correctionTarget,correctionRecipientId,correctionStageAllowed,applyTreas
 import {openTreasuryCorrection} from './src/utils/treasury-correction';
 import {permissionPatchError,effectiveNavigationPermissions} from './src/utils/permission-registry';
 import {roleCompaniesError} from './src/utils/role-companies';
+import {accessChangeBlock} from './src/server/open-work';
+import {requestApproversError} from './src/server/request-approval-routing';
+import {initialApprovalChain} from './src/server/request-approval-chain';
+import {advanceApprovalChain,resumeApprovalChain,currentSupervisorId,chainError,chainStepIds} from './src/utils/request-approval-chain';
+import {parseRequestApprovers,sameRequestApprovers} from './src/utils/request-approval-routing';
+import {installOpenWorkAdmin} from './src/server/open-work-admin';
 import {assessBankImport,bankImportShapeError,bankAccountBankName,type BankImportInput} from './src/utils/bank-account-import';
 import type {
   TreasuryDatabaseState,
@@ -328,6 +348,7 @@ function sanitizeSmsConfigForClient(cfg?: SmsGatewayConfig): SmsGatewayConfig {
   const { apiKey: _secret, password: _pass, ...rest } = base;
   return {
     ...rest,
+    runtimeStatus: smsRuntime(base),
     hasApiKey,
     maskedApiKey,
   };
@@ -341,6 +362,7 @@ async function dispatchRealSms(
     recipientPhone: string;
     message: string;
     relatedTrackingCode?: string;
+    templateValues?: Record<string,string>;
   }
 ): Promise<{
   ok: boolean;
@@ -352,7 +374,8 @@ async function dispatchRealSms(
   if (!db.smsConfig) db.smsConfig = getDefaultSmsConfig();
   if (!db.smsLogs) db.smsLogs = [];
 
-  const cfg = process.env.DISABLE_EXTERNAL_INTEGRATIONS === 'true' ? { ...db.smsConfig, enabled: false } : db.smsConfig;
+  const cfg = db.smsConfig;
+  const runtime = smsRuntime(cfg);
   const cleanPhone = normalizeDigitsServer(params.recipientPhone).trim();
   const nowStr = `${getTodayJalali()} - ${new Date().toTimeString().slice(0, 8)}`;
 
@@ -361,12 +384,13 @@ async function dispatchRealSms(
     errorDetail?: string | null,
     providerMessageId?: string | null
   ): SmsDispatchLogEntry => {
-    const preview = params.message.slice(0, 160);
+    const testEvent=['ADMIN_TEST','ADMIN_TEST_SMS'].includes(params.eventType);
+    const preview = testEvent?'آزمون اتصال پیامک؛ متن آزمایشی ذخیره نمی‌شود.':params.message.slice(0, 160);
     const entry: SmsDispatchLogEntry = {
       id: `sms-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       eventType: params.eventType,
       recipientName: params.recipientName,
-      recipientPhone: cleanPhone || 'نامشخص',
+      recipientPhone: testEvent ? maskSmsPhone(cleanPhone) : cleanPhone || 'نامشخص',
       messagePreview: preview,
       messageSummary: preview,
       provider: cfg.provider,
@@ -405,72 +429,16 @@ async function dispatchRealSms(
     return { ok: false, status: statusCode, error: reason, providerResponse: reason, logEntry };
   }
 
-  let timeoutId:ReturnType<typeof setTimeout>|undefined;
-  try {
-    const resolvedUrl = rawUrl.replace('{API_KEY}', encodeURIComponent(rawKey));
-    const parsedUrl = new URL(resolvedUrl);
-
-    const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), 5000);
-
-    let response: Response;
-    if (cfg.provider === 'KAVENEGAR') {
-      const formParams = new URLSearchParams({
-        receptor: cleanPhone,
-        sender: rawSender,
-        message: params.message,
-      });
-      response = await fetch(`${parsedUrl.toString()}?${formParams.toString()}`, {
-        method: 'POST',
-        headers: { Accept: 'application/json' },
-        signal: controller.signal,
-      });
-    } else {
-      response = await fetch(parsedUrl.toString(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${rawKey}`,
-          'X-API-KEY': rawKey,
-        },
-        body: JSON.stringify({
-          receptor: cleanPhone,
-          to: cleanPhone,
-          mobile: cleanPhone,
-          sender: rawSender,
-          from: rawSender,
-          lineNumber: rawSender,
-          message: params.message,
-          text: params.message,
-        }),
-        signal: controller.signal,
-      });
-    }
-    if (!response.ok) {
-      void response.body?.cancel().catch(()=>{});
-      const errMsg = `خطای وب‌سرویس پیامک (${cfg.provider}): کد وضعیت HTTP ${response.status}`;
-      const logEntry = recordLog('FAILED', errMsg);
-      return { ok: false, status: 'FAILED', error: errMsg, providerResponse: errMsg, logEntry };
-    }
-
-    const respJson: any = JSON.parse(await readSmsProviderBody(response));
-    const msgId = String(
-      respJson?.entries?.[0]?.messageid ||
-        respJson?.messageId ||
-        respJson?.data?.messageId ||
-        respJson?.RetStatus ||
-        `MSG-${Date.now()}`
-    );
-    const safeMessageId=/^[\w.:-]{1,100}$/.test(msgId)&&![rawKey,cfg.password].filter(Boolean).some(secret=>msgId.includes(String(secret)))?msgId:null;
-    const logEntry = recordLog('SENT', null, safeMessageId);
-    return { ok: true, status: 'SENT', providerResponse: privateSmsEvent(params.eventType)?'پیام امنیتی ارسال شد.':`MessageID: ${safeMessageId||'ثبت شد'}`, logEntry };
-  } catch (err: any) {
-    const errMsg = `عدم امکان برقراری ارتباط با درگاه پیامک (${cfg.provider}): ${
-      err?.name === 'AbortError' ? 'مهلت زمانی اتصال منقضی شد (Timeout)' : 'خطای ارتباط یا پاسخ نامعتبر'
-    }`;
-    const logEntry = recordLog('FAILED', errMsg);
-    return { ok: false, status: 'FAILED', error: errMsg, providerResponse: errMsg, logEntry };
-  } finally { if(timeoutId!==undefined)clearTimeout(timeoutId); }
+  if(!runtime.ready || runtime.mode==='TEST_ONLY'&&!['ADMIN_TEST','ADMIN_TEST_SMS'].includes(params.eventType) || !smsEventEnabled(cfg,params.eventType)){
+    const reason=!smsEventEnabled(cfg,params.eventType)?'ارسال پیامک برای این رویداد در تنظیمات غیرفعال است.':runtime.mode==='TEST_ONLY'&&!['ADMIN_TEST','ADMIN_TEST_SMS'].includes(params.eventType)?'ارسال خودکار در حالت آزمون مدیر غیرفعال است.':runtime.reason;
+    const logEntry=recordLog('SKIPPED_DISABLED',reason);return {ok:false,status:'SKIPPED_DISABLED',error:reason,providerResponse:reason,logEntry};
+  }
+  try{
+    const rendered=renderSmsTemplate(params.eventType,cfg.templates,{'نام':params.recipientName,'کد_درخواست':params.relatedTrackingCode||'','پیوند':'https://shahrahsystem.ir/',...params.templateValues},params.message);
+    const sent=await sendFarazSms({...cfg,apiKey:rawKey,senderNumber:rawSender},cleanPhone,rendered);
+    if(!sent.ok){const error=sent.error||'سرویس ارسال را نپذیرفت.';const logEntry=recordLog('FAILED',error);return {ok:false,status:'FAILED',error,providerResponse:error,logEntry};}
+    const logEntry=recordLog('SENT',null,sent.messageId);return {ok:true,status:'SENT',providerResponse:'پیامک توسط سرویس پذیرفته شد؛ تحویل به گوشی هنوز تأیید نشده است.',logEntry};
+  }catch{const error='قالب پیامک معتبر نیست یا اطلاعات لازم برای متغیرهای آن موجود نیست.';const logEntry=recordLog('FAILED',error);return {ok:false,status:'FAILED',error,providerResponse:error,logEntry};}
 }
 
 function getDefaultCompanyBankAccounts(): CompanyBankAccount[] {
@@ -1635,7 +1603,7 @@ const sanitizedStates=new WeakMap<TreasuryDatabaseState,TreasuryDatabaseState>()
 function sanitizeDbForClient(db: TreasuryDatabaseState): TreasuryDatabaseState {
   db=databaseSnapshots.snapshot(db);
   const cached=sanitizedStates.get(db);if(cached)return cached;
-  const { sessions: _sessions, ...rest } = activeRequestProjection(db);
+  const { approvalReminderState:_reminderState,sessions: _sessions,accountInquiries:_inquiries,accountInquiryFiles:_inquiryFiles,accountInquiryOperations:_inquiryOps,personnelBalanceRequests:_balances,personnelBalanceOperations:_balanceOps, ...rest } = activeRequestProjection(db);
   const safe=freeze({
     ...rest,
     users: (db.users || []).map((u) => sanitizeUserForClient(u, db)),
@@ -1694,15 +1662,15 @@ function wouldCreateSupervisorCycle(
 function countPendingApprovalsForSupervisor(db: TreasuryDatabaseState, supervisorId: string): number {
   let count = 0;
   for (const a of db.advanceRequests || []) {
-    if (a.status === 'Pending_Approver' && a.supervisorId === supervisorId) count++;
+    if (a.status === 'Pending_Approver' && currentSupervisorId(a) === supervisorId) count++;
   }
   for (const p of db.paymentRequests || []) {
-    if (p.status === 'Pending_Approver' && p.supervisorId === supervisorId) count++;
+    if (p.status === 'Pending_Approver' && currentSupervisorId(p) === supervisorId) count++;
   }
   for (const b of db.batchPayments || []) {
-    if (b.supervisorId === supervisorId) {
+    if (b.supervisorId === supervisorId || b.items.some(it=>currentSupervisorId(b,it)===supervisorId)) {
       for (const it of b.items || []) {
-        if ((it.status || b.status) === 'Pending_Approver') count++;
+        if ((it.status || b.status) === 'Pending_Approver'&&currentSupervisorId(b,it)===supervisorId) count++;
       }
     }
   }
@@ -1726,7 +1694,7 @@ function reassignPendingApprovalsAndSubordinates(
   }
 
   for (const a of db.advanceRequests || []) {
-    if (a.status === 'Pending_Approver' && a.supervisorId === fromSupervisor.id) {
+    if (!a.approvalChain && a.status === 'Pending_Approver' && a.supervisorId === fromSupervisor.id) {
       a.supervisorId = toSupervisor.id;
       a.supervisorName = toSupervisor.name;
       if (!a.auditHistory) a.auditHistory = [];
@@ -1742,7 +1710,7 @@ function reassignPendingApprovalsAndSubordinates(
   }
 
   for (const p of db.paymentRequests || []) {
-    if (p.status === 'Pending_Approver' && p.supervisorId === fromSupervisor.id) {
+    if (!p.approvalChain && p.status === 'Pending_Approver' && p.supervisorId === fromSupervisor.id) {
       p.supervisorId = toSupervisor.id;
       p.supervisorName = toSupervisor.name;
       if (!p.auditHistory) p.auditHistory = [];
@@ -1758,7 +1726,7 @@ function reassignPendingApprovalsAndSubordinates(
   }
 
   for (const b of db.batchPayments || []) {
-    if (b.supervisorId === fromSupervisor.id) {
+    if (b.supervisorId === fromSupervisor.id && !b.items.some(it=>it.approvalChain)) {
       const hasPending = (b.items || []).some((it) => (it.status || b.status) === 'Pending_Approver');
       if (hasPending) {
         b.supervisorId = toSupervisor.id;
@@ -1968,7 +1936,7 @@ function normalizeDatabase(db:TreasuryDatabaseState,baseline?:TreasuryDatabaseSt
               item.status === 'Pending_Treasury' ||
               item.status === 'In_Payment' ||
               item.status === 'Paid') &&
-            !item.approverId && b.supervisorId && b.supervisorId !== b.requesterId
+            !item.approvalChain && !item.approverId && b.supervisorId && b.supervisorId !== b.requesterId
           ) {
             item.approverId = b.supervisorId && b.supervisorId !== b.requesterId ? b.supervisorId : 'usr-sup-1';
             item.approverName = b.supervisorName || 'دکتر بهرام رستگاری';
@@ -2015,7 +1983,7 @@ function normalizeDatabase(db:TreasuryDatabaseState,baseline?:TreasuryDatabaseSt
           a.status === 'Pending_Treasury' ||
           a.status === 'In_Payment' ||
           a.status === 'Paid') &&
-        !a.approverId && a.supervisorId && a.supervisorId !== a.requesterId
+        !a.approvalChain && !a.approverId && a.supervisorId && a.supervisorId !== a.requesterId
       ) {
         a.approverId = a.supervisorId || 'usr-sup-1';
         a.approverName = a.supervisorName || 'دکتر بهرام رستگاری';
@@ -2056,7 +2024,7 @@ function normalizeDatabase(db:TreasuryDatabaseState,baseline?:TreasuryDatabaseSt
           p.status === 'Pending_Treasury' ||
           p.status === 'In_Payment' ||
           p.status === 'Paid') &&
-        !p.approverId && p.supervisorId && p.supervisorId !== p.requesterId
+        !p.approvalChain && !p.approverId && p.supervisorId && p.supervisorId !== p.requesterId
       ) {
         p.approverId = p.supervisorId || 'usr-sup-1';
         p.approverName = p.supervisorName || 'دکتر بهرام رستگاری';
@@ -2109,6 +2077,8 @@ function normalizeDatabase(db:TreasuryDatabaseState,baseline?:TreasuryDatabaseSt
     db.notifications = [];
   }
 
+  needsSave=initializePersonnelBalances(db,process.env.TREASURY_PERSONNEL_BALANCES_ENABLED==='true')||needsSave;
+  needsSave=initializeAccountInquiries(db,process.env.TREASURY_ACCOUNT_INQUIRIES_ENABLED==='true')||needsSave;
   return needsSave;
 }
 
@@ -2119,6 +2089,7 @@ function readDb():TreasuryDatabaseState {
 
 function saveDb(state: TreasuryDatabaseState): TreasuryDatabaseState {
   databaseSnapshots.assertCurrent(state);
+  stampImpersonatedCommit(state,databaseSnapshots.base(state));
   normalizeDatabase(state,databaseSnapshots.base(state));
   const snapshot=databaseSnapshots.snapshot(state);
   if (!fs.existsSync(DATA_DIR)) {
@@ -2166,9 +2137,8 @@ function saveDb(state: TreasuryDatabaseState): TreasuryDatabaseState {
     fs.fsyncSync(fd);
     written=fs.fstatSync(fd,{bigint:true});
   } finally { fs.closeSync(fd); }
-  databaseSnapshots.assertCurrent(state);
-  fs.renameSync(temporary, DB_PATH);
-  databaseSnapshots.publish(toDisk,written!);
+  replaceJsonFileSync(temporary, DB_PATH,()=>databaseSnapshots.assertCurrent(state));
+  databaseSnapshots.publish(toDisk,written!,encoded);
   wakeBankInquiry();
   // This is the frozen snapshot actually published AFTER the durable commit.
   // Responses must not materialize the still-live draft's history a second time.
@@ -2179,7 +2149,7 @@ function pushAppNotification(
   db: TreasuryDatabaseState,
   payload: Omit<AppNotification, 'id' | 'createdAt' | 'readByUserIds'>
 ): AppNotification {
-  const created=notificationAudiences(payload).map(audience=>pushAddressedNotification(db,audience));
+  const created=(chainNotifications(db,payload)||notificationAudiences(payload)).map(audience=>pushAddressedNotification(db,audience));
   return created[0];
 }
 
@@ -2227,18 +2197,19 @@ function pushAddressedNotification(
       void backgroundWrites.run(async()=>{try{
         const dispatchDb=loadDb(),state=databaseSnapshots.snapshot(dispatchDb),committed=state.notifications?.find(n=>n.id===notif.id);
         if(!committed)return;
-        const recipients=state.users.filter(u=>u.phone&&notificationQueueAllowed(committed,computeEffectiveUserAuth(u,state).effectivePermissions)&&notificationDeliveryEligible(committed,u,state,id=>canSeeNotificationTarget(id,u,state,computeEffectiveUserAuth(u,state))));
+        const recipients=state.users.filter(u=>u.phone&&notificationQueueAllowed(committed,computeEffectiveUserAuth(u,state).effectivePermissions)&&notificationDeliveryEligible(committed,u,state,id=>canSeeNotificationTarget(id,u,state,computeEffectiveUserAuth(u,state)),computeEffectiveUserAuth));
         for(const candidate of recipients){
         // Re-evaluate each audience after any awaited provider call: access may
         // have been revoked while another recipient's request was in flight.
         const currentDb=loadDb(),currentState=databaseSnapshots.snapshot(currentDb),current=currentState.notifications?.find(n=>n.id===notif.id),targetUser=currentState.users.find(u=>u.id===candidate.id);
-        if(!current||!targetUser?.phone||!notificationQueueAllowed(current,computeEffectiveUserAuth(targetUser,currentState).effectivePermissions)||!notificationDeliveryEligible(current,targetUser,currentState,id=>canSeeNotificationTarget(id,targetUser,currentState,computeEffectiveUserAuth(targetUser,currentState))))continue;
+        if(!current||!targetUser?.phone||!notificationQueueAllowed(current,computeEffectiveUserAuth(targetUser,currentState).effectivePermissions)||!notificationDeliveryEligible(current,targetUser,currentState,id=>canSeeNotificationTarget(id,targetUser,currentState,computeEffectiveUserAuth(targetUser,currentState)),computeEffectiveUserAuth))continue;
         const result=await dispatchRealSms(currentDb, {
           eventType: smsEventType,
           recipientName: targetUser.name,
           recipientPhone: targetUser.phone,
           message: `پرتال مالی شاهراه: ${committed.title} (${committed.trackingCode})`,
           relatedTrackingCode: committed.trackingCode,
+          templateValues: {عنوان:committed.title},
         });
           try {
             // Merge only the completed SMS log; this snapshot may predate other users' writes.
@@ -2262,10 +2233,7 @@ function pushAddressedNotification(
 const loginAttemptMap = new Map<string, { failedCount: number; firstAttemptAt: number; lockedUntil: number }>();
 
 // In-memory store for SMS OTP password recovery challenges
-const smsOtpChallengeMap = new Map<
-  string,
-  { userId: string; personnelCode: string; phone: string; otpHash: string; salt: string; expiresAt: number; attempts: number }
->();
+const smsOtpChallenges = new RecoveryOtpChallenges();
 
 function extractBearerToken(req: express.Request): string | null {
   const authHeader = req.headers.authorization;
@@ -2279,17 +2247,7 @@ function extractBearerToken(req: express.Request): string | null {
 }
 
 function resolveSessionUser(req: express.Request, db: TreasuryDatabaseState): { user: User | null; session: UserSessionRecord | null } {
-  const token = extractBearerToken(req);
-  if (!token || !db.sessions) return { user: null, session: null };
-  const session = db.sessions.find((s) => s.token === token);
-  if (!session || session.revoked || session.expiresAt <= Date.now()) {
-    return { user: null, session: null };
-  }
-  const user = db.users.find((u) => u.id === session.userId) || null;
-  if (!user || user.isActive === false) {
-    return { user: null, session: null };
-  }
-  return { user, session };
+  return resolvePortalSession(extractBearerToken(req),db);
 }
 
 async function startServer() {
@@ -2334,10 +2292,10 @@ async function startServer() {
     // Session resolution still happens on EVERY request. Only this exact branded,
     // immutable database + immutable viewer + current effective auth may reuse a
     // projection; a commit/external replacement/revocation changes its identity.
-    if(!sanitizedStates.has(safe)||!Object.isFrozen(viewer))return scopeState(safe,viewer,auth);
+    if(!sanitizedStates.has(safe)||!Object.isFrozen(viewer))return scopeState(safe,viewer,auth,db);
     const signature=JSON.stringify(auth),byViewer=scopedViews.get(safe)||new WeakMap(),cached=byViewer.get(viewer);
     if(cached?.signature===signature)return cached.view;
-    const view=freeze(scopeState(safe,viewer,auth),true) as TreasuryDatabaseState;
+    const view=freeze(scopeState(safe,viewer,auth,db),true) as TreasuryDatabaseState;
     byViewer.set(viewer,{signature,view});scopedViews.set(safe,byViewer);return view;
   };
   const stateAuthority=(viewer:User,db:TreasuryDatabaseState)=>crypto.createHash('sha256').update(JSON.stringify({viewer:sanitizeUserForClient(viewer,db),roles:db.roleConfigs?.filter(r=>getUserRoles(viewer).includes(r.role)),companies:db.companies?.map(c=>({id:c.id,name:c.name}))})).digest('hex');
@@ -2405,7 +2363,7 @@ async function startServer() {
       recent.count++;
       publicAuthAttempts.set(key, recent);
       if (publicAuthAttempts.size > 10_000) publicAuthAttempts.clear();
-      if (recent.count > (req.path === '/auth/login' ? 20 : 3)) return res.status(429).json({ error: 'تعداد درخواست زیاد است؛ کمی بعد دوباره تلاش کنید.' });
+      if (recent.count > (req.path === '/auth/login' ? 20 : 3)) {const retryAfterSeconds=Math.max(1,Math.ceil((recent.since+60_000-now)/1000));res.setHeader('Retry-After',String(retryAfterSeconds));return res.status(429).json({error:'تعداد درخواست زیاد است؛ پس از زمان نمایش‌داده‌شده دوباره تلاش کنید. کد قبلی تا پایان اعتبارش قابل ورود است.',retryAfterSeconds,serverNow:now});}
       return next();
     }
     const db = readDb();
@@ -2414,6 +2372,9 @@ async function startServer() {
       return res.status(401).json({ error: 'برای دسترسی به سامانه وارد حساب خود شوید.', sessionExpired: true });
     }
     res.locals.viewer = user;
+    res.locals.session = session;
+    const sessionError=impersonationRequestError(session,req.path,req.body,req.method);
+    if(sessionError)return res.status(403).json({error:sessionError});
     res.locals.syncBinding=crypto.createHash('sha256').update(session.token+':'+user.id).digest('hex');
     if(req.method==='GET'&&req.path==='/state')res.locals.authorizationDb = db;
     res.setHeader('Cache-Control', 'no-store');
@@ -2428,15 +2389,20 @@ async function startServer() {
     if(publicPaths.has(route))return true;
     const db=loadDb(),authorizationState=databaseSnapshots.snapshot(db),{user,session}=resolveSessionUser(req,authorizationState);
     if(!user||!session){res.status(401).json({error:'برای دسترسی به سامانه وارد حساب خود شوید.',sessionExpired:true});return false;}
+    const sessionError=impersonationRequestError(session,route,req.body,req.method);
+    if(sessionError){res.status(403).json({error:sessionError});return false;}
     const denied=authorizeRequest({path:route,method:req.method,body:req.body},user,authorizationState,computeEffectiveUserAuth(user,authorizationState));
     if(denied){res.status(denied.status).json({error:denied.error,code:denied.code});return false;}
     const fileError=documentInputError(req.body,route);if(fileError){res.status(400).json({error:fileError});return false;}
-    res.locals.viewer=user;res.locals.syncBinding=crypto.createHash('sha256').update(session.token+':'+user.id).digest('hex');res.locals.commandDb=db;return true;
-  });
+    res.locals.viewer=user;res.locals.session=session;res.locals.syncBinding=crypto.createHash('sha256').update(session.token+':'+user.id).digest('hex');res.locals.commandDb=db;return true;
+  },withImpersonationAction);
+  installAdminImpersonation({post:mutations.post,load:loadDb,save:saveDb,resolve:resolveSessionUser,log:pushSecurityAuditLog});
 
   const bankInquiry=installBankInquiry(app,{read:readDb,load:loadDb,save:saveDb,auth:computeEffectiveUserAuth,session:resolveSessionUser,run:mutations.run,post:mutations.post});
   wakeBankInquiry=bankInquiry.wake;
   await bankInquiry.start();
+  const approvalReminders=new ApprovalReminderService({load:loadDb,save:saveDb,run:mutations.run,auth:computeEffectiveUserAuth,onError:()=>console.error('Approval reminder processing failed; durable claims retained.'),send:(db,user,count)=>dispatchRealSms(db,{eventType:'APPROVAL_REMINDER',recipientName:user.name,recipientPhone:user.phone!,message:'شاهراه: '+count+' مورد در کارتابل شما منتظر رسیدگی است. لطفاً بررسی و تعیین وضعیت کنید. https://shahrahsystem.ir/',templateValues:{'تعداد_منتظر':String(count),'عنوان':'یادآوری رسیدگی به کارتابل'}})});
+  approvalReminders.start();
 
   // 1. Get full database state
   app.get('/api/state', (req, res) => {
@@ -2450,6 +2416,15 @@ async function startServer() {
     }
     // Same synchronous read request; the central JSON boundary still sanitizes and scopes it.
     res.json(res.locals.authorizationDb);
+  });
+
+  // Read-only export: current session, capabilities and scoped rows; no writer effects.
+  app.post('/api/treasury/export',(req,res)=>{
+    try{const db=readDb(),viewer=resolveSessionUser(req,db).user;
+      if(!viewer)return res.status(401).json({error:'نشست معتبر نیست.'});
+      const auth=computeEffectiveUserAuth(viewer,db);
+      return res.json(prepareTreasuryExport(projectState(db,viewer),auth.effectivePermissions,req.body,bankInquiry.mode==='CARDINFO_TEST'));
+    }catch(error:any){return res.status([400,403,409,413].includes(error.status)?error.status:500).json({error:error.status?error.message:'خروجی تهیه نشد؛ اطلاعاتی تغییر نکرد.'});}
   });
 
   // 1b. Mark notifications as read
@@ -2474,7 +2449,7 @@ async function startServer() {
     if (!db.notifications) db.notifications = [];
 
     const viewer=res.locals.viewer as User,auth=computeEffectiveUserAuth(viewer,db);
-    const visible=(n:AppNotification)=>notificationQueueAllowed(n,auth.effectivePermissions)&&notificationVisible(n,viewer,db,id=>canSeeNotificationTarget(id,viewer,db,auth));
+    const visible=(n:AppNotification)=>notificationQueueAllowed(n,auth.effectivePermissions)&&notificationVisible(n,viewer,db,id=>canSeeNotificationTarget(id,viewer,db,auth),true,computeEffectiveUserAuth);
 
     if (notificationId) {
       const target = db.notifications.find((n) => n.id === notificationId);
@@ -2625,6 +2600,7 @@ async function startServer() {
         createdAt: session.createdAt,
         expiresAt: session.expiresAt,
         activeSessionsCount,
+        impersonation:publicImpersonation(session,db),
       },
     });
   });
@@ -2830,54 +2806,22 @@ async function startServer() {
       });
     }
 
-    if (!db.smsConfig?.enabled || !db.smsConfig?.events?.sendOtpOnRecovery) {
-      // Record skipped attempt in SMS logs so admin can inspect it, and return honest error
-      await dispatchRealSms(db, {
-        eventType: 'OTP_RECOVERY',
-        recipientName: matchedUser.name,
-        recipientPhone: cleanPhone,
-        message: 'درخواست کد بازیابی رمز عبور پرتال مالی',
-      });
+    const existing=smsOtpChallenges.metadata(matchedUser);
+    if(existing){if(existing.challengeLocked)res.setHeader('Retry-After',String(Math.max(1,Math.ceil((existing.expiresAt-existing.serverNow)/1000))));return res.status(existing.challengeLocked?429:200).json({...existing,success:existing.deliveryStatus==='SENT',message:existing.challengeLocked?'تعداد تلاش‌های مجاز این کد تمام شده است؛ پس از پایان اعتبار، کد تازه بگیرید.':existing.deliveryStatus==='SENT'?'کد قبلی هنوز معتبر است؛ همان کد را وارد کنید.':'نتیجهٔ ارسال قبلی قطعی نیست؛ اگر کد به دست شما رسید، همان را وارد کنید. ارسال دوباره انجام نشد.'});}
+    const runtime=smsRuntime(db.smsConfig||getDefaultSmsConfig());
+    if (!db.smsConfig?.enabled || !db.smsConfig?.events?.sendOtpOnRecovery || !runtime.ready || runtime.mode!=='LIVE') {
+      await dispatchRealSms(db,{eventType:'OTP_RECOVERY',recipientName:matchedUser.name,recipientPhone:cleanPhone,message:'درخواست کد بازیابی رمز عبور پرتال مالی'});
       saveDb(db);
-      return res.status(503).json({
-        error:
-          'درگاه پیامک سازمانی در حال حاضر فعال یا پیکربندی نشده است؛ ارسال پیامک جعلی انجام نمی‌شود. لطفاً از تب «ثبت تیکت بازیابی برای مدیر سیستم» استفاده نمایید.',
-        smsUnavailable: true,
-      });
+      return res.status(!db.smsConfig?.enabled||!db.smsConfig?.events?.sendOtpOnRecovery?503:502).json({error:'ارسال کد بازیابی در این محیط فعال نیست؛ از تیکت بازیابی برای مدیر سیستم استفاده کنید.',smsUnavailable:true});
     }
-
-    const otpPlain = String(crypto.randomInt(100000, 999999));
-    const smsResult = await dispatchRealSms(db, {
-      eventType: 'OTP_RECOVERY',
-      recipientName: matchedUser.name,
-      recipientPhone: cleanPhone,
-      message: `پرتال مالی شاهراه - کد بازیابی رمز عبور شما: ${otpPlain} (اعتبار: ۳ دقیقه)`,
-    });
+    // Admit the hash before any external side effect; a late SMS stays usable.
+    const issued=smsOtpChallenges.issue(matchedUser);
+    const smsResult=await dispatchRealSms(db,{eventType:'OTP_RECOVERY',recipientName:matchedUser.name,recipientPhone:cleanPhone,message:`پرتال مالی شاهراه - کد بازیابی رمز عبور شما: ${issued.code} (اعتبار: ۳ دقیقه)`,templateValues:{کد:issued.code}});
+    smsOtpChallenges.delivery(matchedUser,issued.id,smsResult.ok);
     saveDb(db);
-
-    if (!smsResult.ok) {
-      return res.status(502).json({
-        error: `ارسال پیامک کد تأیید از طریق درگاه پیامک موفق نبود (${smsResult.error}). لطفاً از روش «ثبت تیکت بازیابی برای مدیر سیستم» استفاده کنید.`,
-        smsUnavailable: true,
-      });
-    }
-
-    const salt = crypto.randomBytes(16).toString('hex');
-    const otpHash = hashPasswordWithSalt(otpPlain, salt);
-    smsOtpChallengeMap.set(matchedUser.id, {
-      userId: matchedUser.id,
-      personnelCode: matchedUser.personnelCode,
-      phone: cleanPhone,
-      otpHash,
-      salt,
-      expiresAt: Date.now() + 3 * 60 * 1000,
-      attempts: 0,
-    });
-
-    return res.json({
-      success: true,
-      message: `کد تأیید ۶ رقمی به شماره همراه ${cleanPhone} ارسال شد.`,
-    });
+    const metadata=smsOtpChallenges.metadata(matchedUser);
+    if(!smsResult.ok)return res.status(502).json({...metadata,success:false,error:'پاسخ قطعی ارسال کد دریافت نشد؛ اگر پیامک رسید، کد را همین‌جا وارد کنید. تا پایان اعتبار، کد تازه ارسال نمی‌شود.',smsUnavailable:false});
+    return res.json({...metadata,success:true,message:'درخواست ارسال کد ثبت شد؛ کد دریافتی را تا پایان زمان نمایش‌داده‌شده وارد کنید.'});
   });
 
   // 2f-3. Real SMS OTP Password Recovery (Step 2: Verify OTP & Set New Password)
@@ -2907,24 +2851,10 @@ async function startServer() {
       return res.status(400).json({ error: 'کاربر معتبر یافت نشد.' });
     }
 
-    const challenge = smsOtpChallengeMap.get(matchedUser.id);
-    if (!challenge || challenge.expiresAt < Date.now()) {
-      smsOtpChallengeMap.delete(matchedUser.id);
-      return res.status(400).json({ error: 'کد تأیید پیامکی منقضی شده یا وجود ندارد. لطفاً مجدداً درخواست دهید.' });
-    }
-
-    challenge.attempts += 1;
-    if (challenge.attempts > 5) {
-      smsOtpChallengeMap.delete(matchedUser.id);
-      return res.status(429).json({ error: 'تعداد تلاش‌های مجاز برای این کد به پایان رسید.' });
-    }
-
-    const candidateHash = hashPasswordWithSalt(cleanOtp, challenge.salt);
-    if (candidateHash !== challenge.otpHash) {
-      return res.status(400).json({ error: 'کد تأیید پیامکی وارد شده نادرست است.' });
-    }
-
-    smsOtpChallengeMap.delete(matchedUser.id);
+    const challenge=smsOtpChallenges.verify(matchedUser,cleanOtp);
+    if(challenge.kind==='MISSING')return res.status(400).json({error:'کد تأیید منقضی شده یا برای اطلاعات فعلی حساب معتبر نیست؛ کد تازه بگیرید.',otpExpired:true});
+    if(challenge.kind==='LOCKED')return res.status(429).json({...smsOtpChallenges.metadata(matchedUser),error:'تعداد تلاش‌های مجاز این کد تمام شده است؛ پس از پایان اعتبار، کد تازه بگیرید.'});
+    if(challenge.kind==='WRONG')return res.status(400).json({...smsOtpChallenges.metadata(matchedUser),error:'کد تأیید واردشده نادرست است؛ تا پایان اعتبار می‌توانید دوباره آن را وارد کنید.'});
     const creds = createPasswordCredentials(String(newPassword));
     matchedUser.passwordHash = creds.passwordHash;
     matchedUser.passwordSalt = creds.passwordSalt;
@@ -2948,6 +2878,7 @@ async function startServer() {
     });
 
     saveDb(db);
+    smsOtpChallenges.consume(matchedUser,challenge.challengeId);
     return res.json({
       success: true,
       message: 'رمز عبور شما با موفقیت تغییر یافت. اکنون می‌توانید وارد سامانه شوید.',
@@ -3078,6 +3009,8 @@ async function startServer() {
       paymentExecutionLimit,
       mustChangePassword,
       replacementSupervisorId,
+      requestApprovers,
+      expectedRequestApprovers,
     } = req.body;
 
     const cleanName = String(name || '').trim();
@@ -3088,12 +3021,26 @@ async function startServer() {
     const targetRole: Role = role || 'REQUESTER';
     const configs = db.roleConfigs?.length ? db.roleConfigs : getDefaultRoleConfigs();
     const previousUser = id ? db.users.find(u => u.id === id) : undefined;
+    const previousRequestApprovers=previousUser?.requestApprovers;
+    let nextRequestApprovers=previousRequestApprovers;
+    if(requestApprovers!==undefined){
+      const parsed=parseRequestApprovers(requestApprovers);if(parsed.error)return res.status(400).json({error:parsed.error});
+      if(previousUser){const expected=parseRequestApprovers(expectedRequestApprovers);if(expected.error||!sameRequestApprovers(expected.value,previousRequestApprovers))return res.status(409).json({error:'مسیر تأیید این کاربر تغییر کرده است؛ فرم را دوباره باز کنید.'});}
+      nextRequestApprovers=parsed.value;
+    }
+    const requestRoutingChanged=!sameRequestApprovers(previousRequestApprovers,nextRequestApprovers);
+    const changesInquiryRoute=Object.hasOwn(req.body,'accountInquiryRoute');
+    const nextInquiryRoute=changesInquiryRoute?(req.body.accountInquiryRoute||undefined):previousUser?.accountInquiryRoute;
+    if(changesInquiryRoute&&previousUser&&JSON.stringify(req.body.expectedAccountInquiryRoute??null)!==JSON.stringify(previousUser.accountInquiryRoute??null))return res.status(409).json({error:'مسیر استعلام تغییر کرده؛ فرم کاربر را دوباره باز کنید.'});
+    if(changesInquiryRoute&&previousUser?.id===actor.id&&JSON.stringify(nextInquiryRoute??null)!==JSON.stringify(previousUser.accountInquiryRoute??null))return res.status(403).json({error:'مسیر استعلام حساب خود را نمی‌توانید تغییر دهید.'});
+    if(actor.id===id&&requestRoutingChanged)return res.status(403).json({error:'تغییر مسیر تأیید درخواست‌های حساب خودتان مجاز نیست.'});
     const requestedRoles = additionalRoles === undefined ? previousUser?.additionalRoles || [] : additionalRoles;
     if (!configs.some(r => r.role === targetRole) || !Array.isArray(requestedRoles) || requestedRoles.some(r => typeof r !== 'string' || !configs.some(c => c.role === r))) {
       return res.status(400).json({ error: 'نقش اصلی یا نقش‌های تکمیلی معتبر نیستند.' });
     }
     if (requestedRoles.includes('ADMIN')) return res.status(400).json({ error: 'مدیر سامانه فقط به‌عنوان نقش اصلی قابل انتخاب است.' });
     const targetAdditionalRoles: Role[] = [...new Set<string>(requestedRoles)].filter(r => r !== targetRole);
+    if(nextInquiryRoute){const error=inquiryRouteError({...previousUser,id:id||'',company:cleanCompany,department:cleanDepartment} as User,nextInquiryRoute,db,computeEffectiveUserAuth);if(error)return res.status(400).json({error});}
     const canSupervise = (u: User) => {const a=computeEffectiveUserAuth(u, db);return u.isActive !== false && hasSupervisorPermissions(a.effectivePermissions,a.effectiveAccessScope,a.effectiveApprovalLimitRial);};
 
     if (!cleanName || !cleanPersonnelCode || !cleanDepartment) {
@@ -3133,6 +3080,10 @@ async function startServer() {
       if(supervisorAuth.effectiveAccessScope==='DEPARTMENT'&&(supUser.department!==cleanDepartment||supUser.company!==cleanCompany))return res.status(400).json({error:'سرپرست با محدودهٔ واحد سازمانی باید به همان شرکت و واحد کاربر دسترسی داشته باشد.'});
     }
     const supervisorName = supUser ? supUser.name : null;
+    if(nextRequestApprovers&&(requestApprovers!==undefined||cleanCompany!==previousUser?.company||cleanDepartment!==previousUser?.department)){
+      const routeError=requestApproversError({...previousUser,id:id||'',company:cleanCompany,department:cleanDepartment} as User,nextRequestApprovers,db,computeEffectiveUserAuth);
+      if(routeError)return res.status(400).json({error:routeError});
+    }
 
     if (id) {
       const existing = db.users.find((u) => u.id === id);
@@ -3174,7 +3125,17 @@ async function startServer() {
         }
       }
 
-      // Check if an APPROVER with pending approvals is being deactivated or having role changed away from APPROVER
+      const proposedUser:User={...existing,name:cleanName,personnelCode:cleanPersonnelCode,company:cleanCompany,department:cleanDepartment,role:targetRole,additionalRoles:targetAdditionalRoles,isActive:nextActive,supervisorId:normalizedSupId,
+        ...(requestApprovers!==undefined?{requestApprovers:nextRequestApprovers}:{}),
+        ...(changesInquiryRoute?{accountInquiryRoute:nextInquiryRoute}:{}),
+        accessScope:accessScope||existing.accessScope,
+        financialApprovalLimit:targetRole==='ADMIN'?0:financialApprovalLimit===undefined?existing.financialApprovalLimit:financialApprovalLimit===null||financialApprovalLimit===''?null:Number(financialApprovalLimit),
+        paymentExecutionLimit:targetRole==='ADMIN'?0:paymentExecutionLimit===undefined?existing.paymentExecutionLimit:paymentExecutionLimit===null||paymentExecutionLimit===''?null:Number(paymentExecutionLimit)};
+      const proposedDb={...db,users:db.users.map(u=>u.id===existing.id?proposedUser:replacementSupervisorId&&u.supervisorId===existing.id?{...u,supervisorId:replacementSupervisorId}:u)};
+      const workBlock=accessChangeBlock(db,proposedDb,[existing.id],computeEffectiveUserAuth);
+      if(workBlock)return res.status(409).json(workBlock);
+
+      // Only subordinate routing may be reassigned here; open work must be settled first.
       if (!nextActive || (canSupervise(existing) && !canSupervise({...existing,role:targetRole,additionalRoles:targetAdditionalRoles,accessScope:accessScope || existing.accessScope,financialApprovalLimit:financialApprovalLimit === undefined ? existing.financialApprovalLimit : financialApprovalLimit === null || financialApprovalLimit === '' ? null : Number(financialApprovalLimit)}))) {
         const pendingCount = countPendingApprovalsForSupervisor(db, existing.id);
         if (pendingCount > 0 || db.users.some(u => u.supervisorId === existing.id)) {
@@ -3220,6 +3181,8 @@ async function startServer() {
       existing.phone = cleanPhone;
       existing.supervisorId = normalizedSupId;
       existing.supervisorName = supervisorName;
+      if(changesInquiryRoute){if(nextInquiryRoute)existing.accountInquiryRoute=nextInquiryRoute;else delete existing.accountInquiryRoute;}
+      if(requestApprovers!==undefined&&(Object.keys(nextRequestApprovers||{}).length||existing.requestApprovers!==undefined))existing.requestApprovers=nextRequestApprovers;
       existing.isActive = nextActive;
       if (accessScope) existing.accessScope = accessScope;
 
@@ -3329,6 +3292,7 @@ async function startServer() {
         targetUserName: existing.name,
         description: `ویرایش مشخصات کاربری «${existing.name}» (کد پرسنلی: ${existing.personnelCode}، واحد: ${existing.department})`,
       });
+      if(requestRoutingChanged)pushSecurityAuditLog(db,{actionType:'REQUEST_APPROVAL_ROUTING_CHANGED',actorId:actor.id,actorName:actor.name,targetUserId:existing.id,description:`تغییر مسیر تأیید ثبت‌های آینده؛ قبل: ${JSON.stringify(previousRequestApprovers||{})}؛ بعد: ${JSON.stringify(nextRequestApprovers||{})}`});
     } else {
       // Create new user: require initial password (no silent default '123')
       const rawInitialPass = String(password || '').trim();
@@ -3351,6 +3315,8 @@ async function startServer() {
         phone: cleanPhone,
         supervisorId: normalizedSupId,
         supervisorName,
+        ...(Object.keys(nextRequestApprovers||{}).length?{requestApprovers:nextRequestApprovers}:{}),
+        ...(nextInquiryRoute?{accountInquiryRoute:nextInquiryRoute}:{}),
         isActive: isActive !== undefined ? Boolean(isActive) : true,
         accessScope: accessScope || undefined,
         financialApprovalLimit:
@@ -3369,6 +3335,7 @@ async function startServer() {
         preferences: getDefaultPreferencesForRole(targetRole),
       };
       db.users.push(newUser);
+      if(requestRoutingChanged)pushSecurityAuditLog(db,{actionType:'REQUEST_APPROVAL_ROUTING_CHANGED',actorId:actor.id,actorName:actor.name,targetUserId:newUser.id,description:`تعیین مسیر تأیید ثبت‌های آینده؛ قبل: {}؛ بعد: ${JSON.stringify(nextRequestApprovers||{})}`});
 
       pushSecurityAuditLog(db, {
         actionType: 'USER_CREATED',
@@ -3465,6 +3432,7 @@ async function startServer() {
         recipientName: targetUser.name,
         recipientPhone: targetUser.phone,
         message: `پرتال مالی شاهراه - رمز عبور موقت حساب کاربری شما (${targetUser.personnelCode}) توسط مدیر سیستم صادر شد: ${cleanTemp}`,
+        templateValues:{رمز_موقت:cleanTemp},
       });
       smsDispatched = smsRes.ok;
       smsError = smsRes.error;
@@ -3510,6 +3478,9 @@ async function startServer() {
     }
 
     if (!nextActive) {
+      const nextDb={...db,users:db.users.map(u=>u.id===targetUser.id?{...u,isActive:false}:replacementSupervisorId&&u.supervisorId===targetUser.id?{...u,supervisorId:replacementSupervisorId}:u)};
+      const workBlock=accessChangeBlock(db,nextDb,[targetUser.id],computeEffectiveUserAuth);
+      if(workBlock)return res.status(409).json(workBlock);
       const pendingCount = countPendingApprovalsForSupervisor(db, targetUser.id);
       if (pendingCount > 0 || db.users.some(u => u.supervisorId === targetUser.id)) {
         if (!replacementSupervisorId) {
@@ -3563,6 +3534,7 @@ async function startServer() {
   // 3d. Save or Create Role Definition Config (Role Permissions, Custom Roles & Financial Limits)
   mutations.post('/api/roles/save', (req, res) => {
     const db = loadDb();
+    const beforeRoles={...db,roleConfigs:(db.roleConfigs||getDefaultRoleConfigs()).map(r=>({...r,permissions:{...r.permissions},allowedCompanies:[...(r.allowedCompanies||[])]}))};
     const { user: sessionUser } = resolveSessionUser(req, db);
     const actorId = sessionUser?.id || req.body?.actorId || 'usr-admin';
     const actor = db.users.find((u) => u.id === actorId);
@@ -3690,6 +3662,8 @@ async function startServer() {
       targetCfg.updatedBy = actor.name;
     }
 
+    const workBlock=accessChangeBlock(beforeRoles,db,db.users.filter(u=>getUserRoles(u).includes(cleanRoleKey)).map(u=>u.id),computeEffectiveUserAuth);
+    if(workBlock)return res.status(409).json(workBlock);
     pushSecurityAuditLog(db, {
       actionType: 'ROLE_CONFIG_UPDATED',
       actorId: actor.id,
@@ -3763,6 +3737,7 @@ async function startServer() {
   // 3f. Reset Role(s) to Default Standard Presets
   mutations.post('/api/roles/reset-defaults', (req, res) => {
     const db = loadDb();
+    const beforeRoles={...db,roleConfigs:(db.roleConfigs||getDefaultRoleConfigs()).map(r=>({...r,permissions:{...r.permissions},allowedCompanies:[...(r.allowedCompanies||[])]}))};
     const { user: sessionUser } = resolveSessionUser(req, db);
     const actorId = sessionUser?.id || req.body?.actorId || 'usr-admin';
     const actor = db.users.find((u) => u.id === actorId);
@@ -3845,6 +3820,8 @@ async function startServer() {
       });
     }
 
+    const workBlock=accessChangeBlock(beforeRoles,db,db.users.map(u=>u.id),computeEffectiveUserAuth);
+    if(workBlock)return res.status(409).json(workBlock);
     saveDb(db);
     res.json({ success: true, state: sanitizeDbForClient(db) });
   });
@@ -3856,6 +3833,8 @@ async function startServer() {
     if (!target) {
       return res.status(404).json({ error: 'کاربر یافت نشد.' });
     }
+    const workBlock=accessChangeBlock(db,{...db,users:db.users.map(u=>u.id===target.id?{...u,isActive:false}:u)},[target.id],computeEffectiveUserAuth);
+    if(workBlock)return res.status(409).json(workBlock);
     if (target.role === 'ADMIN') {
       const otherActiveAdmins = db.users.filter((u) => u.id !== id && u.role === 'ADMIN' && u.isActive !== false);
       if (otherActiveAdmins.length === 0) {
@@ -3863,7 +3842,9 @@ async function startServer() {
       }
     }
     // Check if user has any financial/request history; if so, prevent destructive delete and advise deactivation
-    const hasHistory =
+    const hasHistory = (db.personnelBalanceRequests||[]).some(q=>q.requesterId===id||q.personnel.userId===id||q.audit.some(a=>a.actorId===id))||(db.personnelBalanceOperations||[]).some(o=>o.actorId===id)||accountInquiryUserReferenced(db,id)||
+      [...db.advanceRequests,...db.paymentRequests,...db.batchPayments.flatMap(b=>[...b.items,...(b.deletedItems||[])])].some(r=>r.approvalChain?.decisions.some(d=>d.actorId===id)||chainStepIds(r).includes(id)||!!chainError(r)) ||
+      db.users.some(u=>Object.values(u.requestApprovers||{}).includes(id)) ||
       db.advanceRequests.some((a) => a.requesterId === id || a.supervisorId === id || a.accountingId === id || a.treasuryId === id) ||
       db.paymentRequests.some((p) => p.requesterId === id || p.supervisorId === id || p.accountingId === id || p.treasuryId === id) ||
       db.batchPayments.some((b) => b.requesterId === id || b.supervisorId === id);
@@ -3889,8 +3870,8 @@ async function startServer() {
 
   function syncBatchStatus(batch: BatchPaymentRequest) {
     if (!batch.items || batch.items.length === 0) return;
-    if(batch.items.some(it=>['Rejected','Closed'].includes(it.status||''))){
-      batch.status=batch.items.every(it=>it.status==='Rejected')?'Rejected':batch.items.every(it=>it.status==='Closed')?'Closed':'Mixed';
+    if(batch.items.some(it=>['Rejected','Rejected_Treasury','Closed'].includes(it.status||''))){
+      batch.status=batch.items.every(it=>it.status==='Rejected_Treasury')?'Rejected_Treasury':batch.items.every(it=>it.status==='Rejected')?'Rejected':batch.items.every(it=>it.status==='Closed')?'Closed':'Mixed';
       batch.totalAmount=batch.items.reduce((sum,it)=>sum+(it.approvedAmount??it.amount),0);batch.itemCount=batch.items.length;return;
     }
     const allPaid = batch.items.every((it) => it.status === 'Paid');
@@ -3930,14 +3911,15 @@ async function startServer() {
   }
 
   // 5. Submit Advance Request (Single)
-  mutations.post('/api/advance-requests', (req, res) => {
+  const submitSingleAdvance=(req:express.Request,res:express.Response,finalize?:InquiryFinancialFinalizer)=>{if(!Number.isSafeInteger(Number(req.body.amount))||Number(req.body.amount)<=0)return res.status(400).json({error:'مبلغ مساعده باید عدد صحیح مثبت و در محدوده دقت مجاز باشد.'});
     const dateError=normalizeFormDates(req.body,['suggestedDate'],true);if(dateError)return res.status(400).json({error:dateError});
     const db: TreasuryDatabaseState = res.locals.commandDb;
     const { requesterId, requestedMonth, amount, suggestedDate, reason, attachments } = req.body;
 
     const user = db.users.find((u) => u.id === requesterId) || db.users[0];
-    const supUser = user.supervisorId ? db.users.find((u) => u.id === user.supervisorId) : null;
-    const initialStatus: RequestStatus = user.supervisorId ? 'Pending_Approver' : 'Pending_Accounting';
+    const route=initialApprovalChain(user,'ADVANCE_SINGLE',db,computeEffectiveUserAuth);if(route.error)return res.status(400).json({error:route.error});
+    const supUser=route.user;
+    const initialStatus: RequestStatus = route.id ? 'Pending_Approver' : 'Pending_Accounting';
 
     const nextNum = 101 + db.advanceRequests.length;
     const numAmount = Number(amount) || 0;
@@ -3975,8 +3957,9 @@ async function startServer() {
       requesterName: user.name,
       requesterPersonnelCode: user.personnelCode,
       department: user.department,
-      supervisorId: user.supervisorId || null,
-      supervisorName: supUser?.name || user.supervisorName || null,
+      supervisorId: route.id,
+      ...("approvalChain"in route&&route.approvalChain?{approvalChain:structuredClone(route.approvalChain)}:{}),
+      supervisorName: supUser?.name || (route.id===user.supervisorId?user.supervisorName:null) || null,
       accountingId: null,
       accountingName: null,
       treasuryId: null,
@@ -4001,12 +3984,14 @@ async function startServer() {
       actorName: user.name,
       targetSection: newReq.supervisorId ? 'APPROVER' : 'ACCOUNTING',
     });
+    finalize?.(db,{itemType:'ADVANCE',requestId:newReq.id,trackingCode:newReq.trackingCode});
     const committedState=saveDb(db);
     res.json({ success: true, item: newReq, state: committedState });
-  });
+  };
+  mutations.post('/api/advance-requests',(req,res)=>submitSingleAdvance(req,res));
 
   // 6. Submit Payment Request (Single)
-  const submitSinglePayment = (req:express.Request,res:express.Response,external=false) => {
+  const submitSinglePayment = (req:express.Request,res:express.Response,external=false,finalize?:InquiryFinancialFinalizer) => {
     if(external){const error=externalInputError(req.body,false);if(error)return res.status(400).json({error});}
     const dateError=normalizeFormDates(req.body,['dueDate'],!external);if(dateError)return res.status(400).json({error:dateError});
     const bankError=bankFieldsError(req.body,true);if(bankError)return res.status(400).json({error:bankError});
@@ -4037,7 +4022,8 @@ async function startServer() {
     } = req.body;
 
     const user = external?maker:db.users.find((u) => u.id === requesterId) || db.users[0];
-    const supervisorId=external?null:user.supervisorId;
+    const route=external?{id:null}:initialApprovalChain(user,'PAYMENT_SINGLE',db,computeEffectiveUserAuth);if('error'in route&&route.error)return res.status(400).json({error:route.error});
+    const supervisorId=route.id;
     const supUser = supervisorId ? db.users.find((u) => u.id === supervisorId) : null;
 
     const nextNum = 201 + db.paymentRequests.length;
@@ -4084,7 +4070,8 @@ async function startServer() {
       requesterPersonnelCode: user.personnelCode,
       department: user.department,
       supervisorId: supervisorId || null,
-      supervisorName: external?null:supUser?.name || user.supervisorName || null,
+      ...("approvalChain"in route&&route.approvalChain?{approvalChain:structuredClone(route.approvalChain)}:{}),
+      supervisorName: external?null:supUser?.name || (supervisorId===user.supervisorId?user.supervisorName:null) || null,
       accountingId: null,
       accountingName: null,
       treasuryId: null,
@@ -4109,6 +4096,7 @@ async function startServer() {
       actorName: user.name,
       targetSection: newPay.supervisorId ? 'APPROVER' : 'ACCOUNTING',
     });
+    finalize?.(db,{itemType:'PAYMENT',requestId:newPay.id,trackingCode:newPay.trackingCode});
     const committedState=saveDb(db);
     res.json({ success: true, item: newPay, state: committedState });
   };
@@ -4116,14 +4104,16 @@ async function startServer() {
   mutations.post('/api/treasury/external-order',(req,res)=>submitSinglePayment(req,res,true));
 
   // 7. Submit Batch / Aggregate Request (Payment or Advance)
-  mutations.post('/api/batch-payments', (req, res) => {
+  const submitBatch=(req:express.Request,res:express.Response,finalize?:InquiryFinancialFinalizer)=>{
+    if(req.body.batchType!==undefined&&!['ADVANCE','PAYMENT'].includes(req.body.batchType))return res.status(400).json({error:'نوع درخواست گروهی باید مساعده یا دستور پرداخت باشد.'});
     for(const [i,row] of (req.body.items||[]).entries()){const error=bankFieldsError(row,req.body.batchType!=='ADVANCE');if(error)return res.status(400).json({error:`ردیف ${i+1}: ${error}`});}
     req.body.items=(req.body.items||[]).map((row:any)=>normalizedBankFields(row));
     const db: TreasuryDatabaseState = res.locals.commandDb;
     const { requesterId, title, batchType = 'PAYMENT', items, attachments } = req.body;
 
     const user = db.users.find((u) => u.id === requesterId) || db.users[0];
-    const supUser = user.supervisorId ? db.users.find((u) => u.id === user.supervisorId) : null;
+    const route=initialApprovalChain(user,batchType==='ADVANCE'?'ADVANCE_BATCH':'PAYMENT_BATCH',db,computeEffectiveUserAuth);if(route.error)return res.status(400).json({error:route.error});
+    const supUser=route.user;
 
     const nextBatchNum = 101 + db.batchPayments.length;
     const batchTrackingCode = `${batchType === 'ADVANCE' ? 'BAT-ADV' : 'BAT'}-1403-${nextBatchNum}`;
@@ -4145,7 +4135,8 @@ async function startServer() {
         invoiceNumber: it.invoiceNumber || `INV-B${nextBatchNum}-${index + 1}`,
         costCenter: it.costCenter || user.department,
         requestedMonth: it.requestedMonth || currentJalaliMonth(),
-        status: (user.supervisorId ? 'Pending_Approver' : 'Pending_Accounting') as RequestStatus,
+        status: (route.id ? 'Pending_Approver' : 'Pending_Accounting') as RequestStatus,
+        ...(route.approvalChain?{approvalChain:structuredClone(route.approvalChain)}:{}),
         version: 1,
         comments: [],
         auditHistory: [
@@ -4177,13 +4168,13 @@ async function startServer() {
       requesterName: user.name,
       requesterPersonnelCode: user.personnelCode,
       department: user.department,
-      supervisorId: user.supervisorId || null,
-      supervisorName: supUser?.name || user.supervisorName || null,
+      supervisorId: route.id,
+      supervisorName: supUser?.name || (route.id===user.supervisorId?user.supervisorName:null) || null,
       approverNote: null,
       accountingNote: null,
       rejectionReason: null,
       returnedReason: null,
-      status: user.supervisorId ? 'Pending_Approver' : 'Pending_Accounting',
+      status: route.id ? 'Pending_Approver' : 'Pending_Accounting',
       paidBankName: null,
       paidAt: null,
       paidDateJalali: null,
@@ -4205,9 +4196,18 @@ async function startServer() {
       actorName: user.name,
       targetSection: newBatch.supervisorId ? 'APPROVER' : 'ACCOUNTING',
     });
+    finalize?.(db,{itemType:'BATCH_ITEM',requestId:newBatch.id,trackingCode:newBatch.trackingCode,rowIds:newBatch.items.map(r=>r.id)});
     const committedState=saveDb(db);
     res.json({ success: true, batch: newBatch, state: committedState });
-  });
+  };
+  mutations.post('/api/batch-payments',(req,res)=>submitBatch(req,res));
+  installPersonnelBalances({get:(p,h)=>app.get(p,h),post:mutations.post,read:readDb,save:saveDb,auth:computeEffectiveUserAuth,enabled:process.env.TREASURY_PERSONNEL_BALANCES_ENABLED==='true',notify:pushAppNotification});
+  installAccountInquiries({get:(p,h)=>app.get(p,h),post:mutations.post,read:readDb,save:saveDb,auth:computeEffectiveUserAuth,dataDir:DATA_DIR,enabled:process.env.TREASURY_ACCOUNT_INQUIRIES_ENABLED==='true',createFinancial:(req,res,kind,body,finalize)=>{
+    const db=res.locals.commandDb as TreasuryDatabaseState,viewer=res.locals.viewer as User,route=kind.endsWith('BATCH')?'/batch-payments':kind==='ADVANCE_SINGLE'?'/advance-requests':'/payment-requests';
+    const denied=authorizeRequest({path:route,method:'POST',body},viewer,db,computeEffectiveUserAuth(viewer,db));if(denied)return res.status(denied.status).json({error:denied.error,code:denied.code});
+    const documentError=documentInputError(body,route);if(documentError)return res.status(400).json({error:documentError});
+    const original=req.body;req.body=body;try{return kind.endsWith('BATCH')?submitBatch(req,res,finalize):kind==='ADVANCE_SINGLE'?submitSingleAdvance(req,res,finalize):submitSinglePayment(req,res,false,finalize);}finally{req.body=original;}
+  }});
 
   // Owner amendment uses the same serialized write turn as review; never advances workflow.
   mutations.post('/api/requests/edit-submitted',(req,res)=>{
@@ -4221,6 +4221,7 @@ async function startServer() {
     if(error)return res.status(400).json({error});
     applySubmittedChanges(row,changes,itemType,requesterId);
     if(batch)syncBatchStatus(batch);
+    if(row.approvalChain){const parent:any=batch||row;pushAppNotification(db,{eventType:'REQUEST_SUBMITTED',title:'درخواست پیش از بررسی ویرایش شد',body:'نسخهٔ تازهٔ درخواست برای بررسی آماده است.',actorName:res.locals.viewer.name,requestId:parent.id,rowId:batch?row.id:undefined,itemType,trackingCode:parent.trackingCode,targetSection:'APPROVER'});}
     const committedState=saveDb(db);
     return res.json({success:true,item:row,state:committedState});
   });
@@ -4234,6 +4235,9 @@ async function startServer() {
     if(batch){(batch.deletedItems||=[]).push(row as typeof batch.items[number]);batch.items=batch.items.filter(r=>r.id!==rowId);if(batch.items.length)syncBatchStatus(batch);else{batch.status='Closed';batch.totalAmount=0;batch.itemCount=0;batch.requesterDeletedAt=at;batch.requesterDeletedBy=actor.id;}}
     const committedState=saveDb(db);return res.json({success:true,state:committedState});
   });
+
+  installOpenWorkAdmin(mutations,{loadDb,resolveUser:(req,db)=>resolveSessionUser(req,db).user||undefined,auth:computeEffectiveUserAuth,saveDb,syncBatchStatus,pushSecurityAuditLog,pushAppNotification});
+  installTreasuryRejection({post:mutations.post,load:loadDb,save:saveDb,auth:computeEffectiveUserAuth,syncBatch:syncBatchStatus,notice:pushAppNotification});
 
   // 8. Individual Row Review Action (Approve, Return for Revision, Edit Amount & Comment)
   function rejectionTarget(db:TreasuryDatabaseState,target:{itemType:string;requestId:string;rowId?:string}){
@@ -4417,6 +4421,7 @@ async function startServer() {
 
       syncBatchStatus(batch);
 
+      if ((action==='APPROVE'||action==='UPDATE_AND_APPROVE')&&item.approvalChain&&item.status==='Pending_Accounting'){advanceApprovalChain(item,reviewer,todayDate);syncBatchStatus(batch);}
       if (action === 'RETURN_FOR_REVISION') {
         pushAppNotification(db, {
           eventType: 'RETURNED_FOR_REVISION',
@@ -4590,6 +4595,7 @@ async function startServer() {
         }
       }
 
+      if ((action==='APPROVE'||action==='UPDATE_AND_APPROVE')&&target.approvalChain&&target.status==='Pending_Accounting')advanceApprovalChain(target,reviewer,todayDate);
       if (action === 'RETURN_FOR_REVISION') {
         pushAppNotification(db, {
           eventType: 'RETURNED_FOR_REVISION',
@@ -4760,6 +4766,7 @@ async function startServer() {
         }
       }
 
+      if ((action==='APPROVE'||action==='UPDATE_AND_APPROVE')&&target.approvalChain&&target.status==='Pending_Accounting')advanceApprovalChain(target,reviewer,todayDate);
       if (action === 'RETURN_FOR_REVISION') {
         pushAppNotification(db, {
           eventType: 'RETURNED_FOR_REVISION',
@@ -5075,7 +5082,8 @@ async function startServer() {
 
     modifiedBatches.forEach((b) => syncBatchStatus(b));
 
-    for(const target of changedRows)pushAppNotification(db,reviewedNotification(target.parent,target.row,target.itemType,action,reviewer.name,returnReason||''));
+    for(const target of changedRows){if(action==='APPROVE'&&target.row.approvalChain&&target.row.status==='Pending_Accounting')advanceApprovalChain(target.row,reviewer,todayDate);pushAppNotification(db,reviewedNotification(target.parent,target.row,target.itemType,action,reviewer.name,returnReason||''));}
+    for(const b of modifiedBatches)syncBatchStatus(b);
 
     const committedState=saveDb(db);
     res.json({
@@ -5107,19 +5115,9 @@ async function startServer() {
     }
     const bankError=bankFieldsError(req.body);if(bankError)return res.status(400).json({error:bankError});
     req.body=normalizedBankFields(req.body);
-    const db = loadDb();
-    const {
-      requesterId,
-      itemType,
-      requestId,
-      rowId,
-      amount,
-      description,
-      accountOrCard,
-      iban,
-      bankName,
-      newAttachments,
-    } = req.body;
+    // Authorization and version admission ran inside this same serialized writer turn.
+    const db = draft;
+    const {requesterId,itemType,requestId,rowId,amount,description,accountOrCard,iban,bankName,newAttachments} = req.body;
 
     const user = db.users.find((u) => u.id === requesterId);
     const todayDate = `${getTodayJalali()} - ${new Date().toTimeString().slice(0, 5)}`;
@@ -5132,7 +5130,7 @@ async function startServer() {
       const error=bankFieldsError({...item,...req.body},batch.batchType!=='ADVANCE');if(error)return res.status(400).json({error});
 
       const sensitiveChanged =
-        (amount !== undefined && Number(amount) !== Number(item.amount)) ||
+        (amount !== undefined && (Number(amount) !== Number(item.amount) || !!item.approvalChain&&Number(amount)!==Number(item.approvedAmount??item.amount))) ||
         bankIdentifierChanged(accountOrCard,item.accountOrCard,'CARD') ||
         bankIdentifierChanged(iban,item.iban,'IBAN') ||
         (bankName !== undefined && String(bankName).trim() !== String(item.bankName || '').trim()) ||
@@ -5164,6 +5162,7 @@ async function startServer() {
         !batch.supervisorId || (wasReturnedByAccounting && !sensitiveChanged && hadPriorSupApproval) ? 'Pending_Accounting' : 'Pending_Approver';
 
       item.status = nextStatus;
+      resumeApprovalChain(item,sensitiveChanged);
       item.version = (item.version || 1) + 1;
       item.isResubmitted = true;
       item.resubmittedAt = todayDate;
@@ -5203,10 +5202,10 @@ async function startServer() {
     if (itemType === 'PAYMENT') {
       const target = db.paymentRequests.find((p) => p.id === requestId);
       if (!target) return res.status(404).json({ error: 'دستور پرداخت یافت نشد' });
-      const error=bankFieldsError({...target,...req.body},true);if(error)return res.status(400).json({error});
+      const error=bankFieldsError({...target,...req.body},!target.personnelBalanceRef);if(error)return res.status(400).json({error});
 
       const sensitiveChanged =
-        (amount !== undefined && Number(amount) !== Number(target.amount)) ||
+        (amount !== undefined && (Number(amount) !== Number(target.amount) || !!target.approvalChain&&Number(amount)!==Number(target.approvedAmount??target.amount))) ||
         bankIdentifierChanged(accountOrCard,target.accountOrCard,'CARD') ||
         bankIdentifierChanged(iban,target.iban,'IBAN') ||
         (bankName !== undefined && String(bankName).trim() !== String(target.bankName || '').trim()) ||
@@ -5235,6 +5234,7 @@ async function startServer() {
         !target.supervisorId || (wasReturnedByAccounting && !sensitiveChanged && hadPriorSupApproval) ? 'Pending_Accounting' : 'Pending_Approver';
 
       target.status = nextStatus;
+      resumeApprovalChain(target,sensitiveChanged);
       target.version = (target.version || 1) + 1;
       target.isResubmitted = true;
       target.resubmittedAt = todayDate;
@@ -5274,7 +5274,7 @@ async function startServer() {
       if (!target) return res.status(404).json({ error: 'مساعده یافت نشد' });
 
       const sensitiveChanged =
-        (amount !== undefined && Number(amount) !== Number(target.amount)) ||
+        (amount !== undefined && (Number(amount) !== Number(target.amount) || !!target.approvalChain&&Number(amount)!==Number(target.approvedAmount??target.amount))) ||
         (Array.isArray(newAttachments) && newAttachments.length > 0);
 
       const hadPriorSupApproval = Boolean(target.approvedBySupervisorUserId);
@@ -5300,6 +5300,7 @@ async function startServer() {
         !target.supervisorId || (wasReturnedByAccounting && !sensitiveChanged && hadPriorSupApproval) ? 'Pending_Accounting' : 'Pending_Approver';
 
       target.status = nextStatus;
+      resumeApprovalChain(target,sensitiveChanged);
       target.version = (target.version || 1) + 1;
       target.isResubmitted = true;
       target.resubmittedAt = todayDate;
@@ -5811,7 +5812,7 @@ async function startServer() {
             totalPaidAmount += payNow;
             relatedIds.push(row.id);
             relatedCodes.push(`${batch.trackingCode}-${row.id.slice(-4)}`);
-            payeeNames.push(row.payeeName);
+            payeeNames.push(destinationRecipient('BATCH_ITEM',batch,row)||'نام صاحب حساب ثبت نشده');
             modifiedBatches.add(batch);
           }
         }
@@ -5874,7 +5875,7 @@ async function startServer() {
           totalPaidAmount += payNow;
           relatedIds.push(adv.id);
           relatedCodes.push(adv.trackingCode);
-          payeeNames.push(adv.requesterName);
+          payeeNames.push(destinationRecipient('ADVANCE',adv)||'نام صاحب حساب ثبت نشده');
         }
       } else if (item.type === 'PAYMENT') {
         const pay = db.paymentRequests.find((r) => r.id === item.id);
@@ -6019,7 +6020,11 @@ async function startServer() {
     const numericAmount = Number(amount) || 0;
 
     const registrationAt = new Date();
+    const transactionCompany=db.companies?.find(c=>c.id===trsUser.company||c.name===trsUser.company);
     const newManual: ManualPayment = {
+      // A system-only admin profile may have no business company. Preserve its
+      // historical accounting context instead of inventing a cost-owning company.
+      ...(transactionCompany||trsUser.role!=='ADMIN'?{company:transactionCompany?.name||trsUser.company,...(transactionCompany?{companyId:transactionCompany.id}:{})}:{}),
       entryOperation:operation,
       createdAtIso: registrationAt.toISOString(),
       id: `man-${Date.now()}`,
@@ -7046,6 +7051,10 @@ async function startServer() {
       domain,
       events,
       clearSecrets,
+      templates,
+      templatesVersion,
+      approvalReminders,
+      remindersVersion,
     } = req.body || {};
 
     const current = db.smsConfig || getDefaultSmsConfig();
@@ -7068,7 +7077,7 @@ async function startServer() {
       nextPassword = String(password).trim();
     }
 
-    const wantEnabled = Boolean(enabled);
+    const wantEnabled = enabled===undefined?current.enabled:Boolean(enabled);
     if (wantEnabled && !cleanSender) {
       return res.status(400).json({ error: 'برای فعال‌سازی درگاه پیامک، وارد کردن شماره خط ارسال‌کننده الزامی است.' });
     }
@@ -7078,10 +7087,15 @@ async function startServer() {
       });
     }
 
+    if(approvalReminders!==undefined){const error=reminderConfigError(approvalReminders);if(error)return res.status(400).json({error});if(!Number.isSafeInteger(remindersVersion)||remindersVersion!==(current.remindersVersion||0))return res.status(409).json({error:'تنظیمات یادآوری تغییر کرده است؛ صفحه را تازه کنید.'});}
+    if(templates!==undefined){if(!Number.isSafeInteger(templatesVersion)||templatesVersion!==(current.templatesVersion||0))return res.status(409).json({error:'قالب پیامک‌ها تغییر کرده است؛ صفحه را تازه کنید و تغییرات جدید را بررسی کنید.'});const error=smsTemplatesError(templates);if(error)return res.status(400).json({error});}
+    if(wantEnabled&&['FARAZ_SMS','FARAZSMS'].includes(provider||current.provider)&&!smsContract({provider:provider||current.provider,apiUrl:cleanUrl}))return res.status(400).json({error:'برای فراز فقط نشانی رسمی و تأییدشدهٔ سرویس قابل استفاده است.'});
     const today = `${getTodayJalali()} - ${new Date().toTimeString().slice(0, 5)}`;
     const updatedCfg: SmsGatewayConfig = {
       ...current,
       enabled: wantEnabled,
+      ...(approvalReminders!==undefined?{approvalReminders,remindersVersion:(current.remindersVersion||0)+1}:{}),
+      ...(templates!==undefined?{templates,templatesVersion:(current.templatesVersion||0)+1}:{}),
       provider: provider || current.provider || 'KAVENEGAR',
       senderNumber: cleanSender,
       apiKey: nextApiKey,
@@ -7090,7 +7104,7 @@ async function startServer() {
       username: cleanUser || undefined,
       password: nextPassword || undefined,
       domain: cleanDomain || undefined,
-      events: {
+      events: events===undefined?current.events:{
         sendOtpOnRecovery: events?.sendOtpOnRecovery !== undefined ? Boolean(events.sendOtpOnRecovery) : current.events.sendOtpOnRecovery,
         sendOnAdminPasswordReset: events?.sendOnPasswordReset !== undefined ? Boolean(events.sendOnPasswordReset) : current.events.sendOnAdminPasswordReset ?? true,
         sendOnPasswordReset: events?.sendOnPasswordReset !== undefined ? Boolean(events.sendOnPasswordReset) : current.events.sendOnPasswordReset ?? true,
@@ -7149,14 +7163,14 @@ async function startServer() {
     db.smsConfig.lastTestedAt = nowStr;
     db.smsConfig.lastTestStatus = result.ok ? 'SUCCESS' : 'FAILED';
     db.smsConfig.lastTestMessage = result.ok
-      ? `ارسال موفق به ${cleanPhone} (${result.providerResponse || 'OK'})`
-      : `خطا در ارسال به ${cleanPhone}: ${result.error || 'عدم پاسخ درگاه'}`;
+      ? `سرویس پیامک را برای ${maskSmsPhone(cleanPhone)} پذیرفت؛ تحویل به گوشی بررسی نشده است.`
+      : `آزمون ${maskSmsPhone(cleanPhone)}: ${result.error || 'عدم پاسخ درگاه'}`;
 
     pushSecurityAuditLog(db, {
       actionType: 'SMS_TEST_DISPATCHED',
       actorId: actor.id,
       actorName: actor.name,
-      description: `تست ارسال پیامک به شماره ${cleanPhone} — نتیجه: ${result.ok ? 'موفق' : `ناموفق (${result.error})`}`,
+      description: `تست ارسال پیامک به شماره ${maskSmsPhone(cleanPhone)} — نتیجه: ${result.ok ? 'موفق' : `ناموفق (${result.error})`}`,
     });
 
     saveDb(db);
@@ -7203,7 +7217,7 @@ async function startServer() {
   });
 
   const shutdown = () => {
-    bankInquiry.stop();wakeBankInquiry=()=>{};
+    approvalReminders.stop();bankInquiry.stop();wakeBankInquiry=()=>{};
     void stopServer(server,mutations,backgroundWrites).then(()=>process.exit(0)).catch(()=>{console.error('Graceful shutdown failed; process retained for recovery.');process.exitCode=1;});
   };
 
@@ -7215,3 +7229,4 @@ async function startServer() {
 // channel must not retain an unready process and its store lease as "online".
 // Graceful shutdown after admission remains the separate drain path above.
 startServer().catch(error => { console.error(error.message); process.exit(1); });
+

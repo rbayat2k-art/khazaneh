@@ -114,6 +114,8 @@ export function getStatusLabel(status: RequestStatus | CoverStatus | string): st
       return 'نیازمند اصلاح (برگشت‌داده‌شده)';
     case 'Rejected':
       return 'رد شده';
+    case 'Rejected_Treasury':
+      return 'رد پرداخت خزانه';
     case 'Mixed':
       return 'ترکیبی؛ وضعیت هر ردیف را ببینید';
     case 'Closed':
@@ -141,6 +143,7 @@ export function getStatusTextClass(status: RequestStatus | CoverStatus | string)
     case 'Needs_Revision':
       return 'text-orange-700 font-semibold';
     case 'Rejected':
+    case 'Rejected_Treasury':
       return 'text-rose-700 font-medium';
     default:
       return 'text-slate-600';
@@ -187,6 +190,7 @@ export function getStatusBadgeClasses(status: RequestStatus | CoverStatus | stri
     case 'Needs_Revision':
       return 'bg-orange-50 text-orange-800 border-orange-200';
     case 'Rejected':
+    case 'Rejected_Treasury':
       return 'bg-rose-50 text-rose-800 border-rose-200';
     default:
       return 'bg-slate-100 text-slate-700 border-slate-200';

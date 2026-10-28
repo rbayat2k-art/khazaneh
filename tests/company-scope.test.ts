@@ -18,13 +18,13 @@ test('company union comes only from configured assigned roles and revocation tak
  db.roleConfigs[1].allowedCompanies=[];assert.equal(canSeeRequest(db.paymentRequests[1],viewer,db,auth),false);viewer.additionalRoles=['ADMIN','MISSING'];assert.equal(canSeeRequest(db.paymentRequests[1],viewer,db,auth),false);
  assert.equal(canSeeRequest(db.paymentRequests[1],{...viewer,role:'ADMIN'},db,auth),true);
 });
-test('projection protects bank masters, all receipt targets and mixed-company covers',()=>{
+test('projection shares source bank masters but protects all receipt targets and mixed-company covers',()=>{
  const {viewer,db,auth}=setup();db.receiptArchives=[{id:'SYN-RA',relatedPaymentIds:[db.paymentRequests[0].id]},{id:'SYN-RB',relatedPaymentIds:db.paymentRequests.map((r:any)=>r.id)}];
  db.dailyCovers=[{id:'SYN-CA',advanceRequestIds:[],paymentRequestIds:[db.paymentRequests[0].id],manualPaymentIds:[]},{id:'SYN-CB',advanceRequestIds:[],paymentRequestIds:db.paymentRequests.map((r:any)=>r.id),manualPaymentIds:[]}];
- const result=scopeState(db,viewer,auth);assert.deepEqual(result.paymentRequests.map(r=>r.id),['SYN-PAY-0']);assert.deepEqual(result.companyBankAccounts!.map(r=>r.id),['SYN-BANK-A']);assert.deepEqual(result.receiptArchives.map(r=>r.id),['SYN-RA']);assert.deepEqual(result.dailyCovers.map(r=>r.id),['SYN-CA']);
+ const result=scopeState(db,viewer,auth);assert.deepEqual(result.paymentRequests.map(r=>r.id),['SYN-PAY-0']);assert.deepEqual(result.companyBankAccounts!.map(r=>r.id),['SYN-BANK-A','SYN-BANK-B']);assert.deepEqual(result.receiptArchives.map(r=>r.id),['SYN-RA']);assert.deepEqual(result.dailyCovers.map(r=>r.id),['SYN-CA']);
 });
-test('mutation rejects an unauthorized source account even for an authorized financial target',()=>{
- const {viewer,db,auth}=setup();const denied=authorizeRequest({path:'/treasury/execute-payment',method:'POST',body:{items:[{type:'PAYMENT',id:'SYN-PAY-0'}],sourceBankAccountId:'SYN-BANK-B',bankRefNumber:'TEST'}},viewer,db,auth);assert.equal(denied?.status,403);
+test('shared source account does not grant an unauthorized financial target',()=>{
+ const {viewer,db,auth}=setup();assert.equal(authorizeRequest({path:'/treasury/execute-payment',method:'POST',body:{items:[{type:'PAYMENT',id:'SYN-PAY-0'}],sourceBankAccountId:'SYN-BANK-B',bankRefNumber:'TEST'}},viewer,db,auth),null);const denied=authorizeRequest({path:'/treasury/execute-payment',method:'POST',body:{items:[{type:'PAYMENT',id:'SYN-PAY-1'}],sourceBankAccountId:'SYN-BANK-B',bankRefNumber:'TEST'}},viewer,db,auth);assert.equal(denied?.status,403);
 });
 test('historical stable company IDs survive a display rename; ambiguous legacy ownership fails closed',()=>{
  const {viewer,db}=setup();db.companies[0].name='TEST renamed';db.roleConfigs[0].allowedCompanies=['TEST renamed'];const p=companyPolicy(viewer,db);
